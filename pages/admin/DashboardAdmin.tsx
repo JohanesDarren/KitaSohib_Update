@@ -415,9 +415,9 @@ export const DashboardAdmin: React.FC = () => {
                                             {s.phone && <p className="text-xs text-slate-500 flex items-center gap-2"><Phone size={12}/> {s.phone}</p>}
                                         </div>
                                         <div className="flex gap-2">
-                                            <Badge variant={s.subscription_plan === 'premium' ? 'success' : 'neutral'}>{s.subscription_plan === 'premium' ? 'Premium' : 'Free'}</Badge>
-                                            {s.subscription_expires_at && (
-                                                <Badge variant="outline">{new Date(s.subscription_expires_at).toLocaleDateString()}</Badge>
+                                            <Badge variant={s.subscription_plan === 'premium' ? 'success' : (s.subscription_plan === 'pro' ? 'warning' : 'neutral')}>{s.subscription_plan === 'premium' ? 'Premium' : (s.subscription_plan === 'pro' ? 'Pro' : 'Free')}</Badge>
+                                            {(s.subscription_end_date || s.subscription_expires_at) && s.subscription_plan !== 'free' && (
+                                                <Badge variant="outline">{new Date((s.subscription_end_date || s.subscription_expires_at) as string).toLocaleDateString()}</Badge>
                                             )}
                                         </div>
                                     </div>
@@ -425,7 +425,8 @@ export const DashboardAdmin: React.FC = () => {
                                         <div className="flex gap-2">
                                             <button onClick={() => {
                                                 setSubscriptionTarget(s);
-                                                setSubForm({ plan: s.subscription_plan || 'free', expiresAt: s.subscription_expires_at ? s.subscription_expires_at.split('T')[0] : '' });
+                                                const endDate = s.subscription_end_date || s.subscription_expires_at;
+                                                setSubForm({ plan: s.subscription_plan || 'free', expiresAt: endDate ? endDate.split('T')[0] : '' });
                                                 setShowSubscriptionModal(true);
                                             }} className="text-slate-400 hover:text-indigo-600 p-2 border border-slate-100 rounded-lg hover:bg-slate-50 transition-all flex gap-2 items-center text-xs font-bold"><Settings size={14}/> Kelola Paket</button>
                                         </div>
@@ -634,19 +635,20 @@ export const DashboardAdmin: React.FC = () => {
                                 onChange={e => setSubForm({...subForm, plan: e.target.value})} 
                                 options={[
                                     {value: 'free', label: 'Basic / Free'}, 
-                                    {value: 'premium', label: 'SaaS Premium'}
+                                    {value: 'pro', label: 'PRO (Monitoring & Ekspor)'},
+                                    {value: 'premium', label: 'Premium (White-label)'}
                                 ]} 
                             />
                             
-                            {subForm.plan === 'premium' && (
+                            {(subForm.plan === 'pro' || subForm.plan === 'premium') && (
                                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                     <Input 
-                                        label="Berlaku Sampai (Tgl Kadaluarsa)" 
+                                        label="Berlaku Sampai (Tgl Kedaluwarsa)" 
                                         type="date" 
                                         value={subForm.expiresAt} 
                                         onChange={e => setSubForm({...subForm, expiresAt: e.target.value})} 
                                     />
-                                    <p className="text-[10px] text-slate-400 mt-2">Kosongkan jika paket berlaku selamanya (seumur hidup).</p>
+                                    <p className="text-[10px] text-slate-400 mt-2">Untuk menyetop langganan, cukup ubah status Paket ke "Basic / Free". Kosongkan tanggal ini jika paket berlaku selamanya.</p>
                                 </div>
                             )}
                             

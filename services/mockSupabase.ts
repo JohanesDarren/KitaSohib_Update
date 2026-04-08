@@ -152,13 +152,13 @@ export const api = {
           data: { 
               ...schoolData, 
               subscription_plan: 'free',
-              subscription_expires_at: null,
+              subscription_end_date: null,
               created_at: new Date().toISOString() 
           } 
       });
   },
-  updateSchoolSubscription: async (id: string, plan: 'free' | 'premium', expires: string | null) => {
-      return await fetchGAS('update_row', { sheet: 'schools', id, data: { subscription_plan: plan, subscription_expires_at: expires } });
+  updateSchoolSubscription: async (id: string, plan: 'free' | 'pro' | 'premium', endDate: string | null) => {
+      return await fetchGAS('update_row', { sheet: 'schools', id, data: { subscription_plan: plan, subscription_end_date: endDate } });
   },
   updateSchoolTheme: async (id: string, school_logo: string, school_color_hex: string) => {
       return await fetchGAS('update_row', { sheet: 'schools', id, data: { school_logo, school_color_hex } });
@@ -176,9 +176,34 @@ export const api = {
       if (!id) return false;
       const schools = await api.getSchools();
       const mySchool = schools.find(s => String(s.id) === String(id));
-      if (!mySchool || mySchool.subscription_plan !== 'premium') return false;
-      if (mySchool.subscription_expires_at && new Date(mySchool.subscription_expires_at).getTime() < new Date().getTime()) return false;
+      if (!mySchool) return false;
+      
+      const isSubscribed = mySchool.subscription_plan === 'pro' || mySchool.subscription_plan === 'premium';
+      if (!isSubscribed) return false;
+      
+      const endDateStr = mySchool.subscription_end_date || mySchool.subscription_expires_at;
+      if (endDateStr && new Date(endDateStr).getTime() < new Date().getTime()) return false;
+      
       return true;
+  },
+  getSchoolSubscriptionInfo: async (schoolId?: string) => {
+      const user = getCurrentUser();
+      const id = schoolId || user?.school_id;
+      if (!id) return { plan: 'free', isActive: false };
+      const schools = await api.getSchools();
+      const mySchool = schools.find(s => String(s.id) === String(id));
+      if (!mySchool) return { plan: 'free', isActive: false };
+      
+      let isActive = mySchool.subscription_plan === 'pro' || mySchool.subscription_plan === 'premium';
+      const endDateStr = mySchool.subscription_end_date || mySchool.subscription_expires_at;
+      if (isActive && endDateStr && new Date(endDateStr).getTime() < new Date().getTime()) {
+          isActive = false;
+      }
+      return { 
+          plan: mySchool.subscription_plan || 'free', 
+          isActive,
+          endDate: endDateStr
+      };
   },
   deleteSchool: async (id: string) => await fetchGAS('delete_row', { sheet: 'schools', id }),
 

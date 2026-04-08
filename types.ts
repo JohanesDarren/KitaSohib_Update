@@ -30,8 +30,9 @@ export interface School {
   address?: string; 
   contact_email?: string;
   phone?: string;
-  subscription_plan?: 'free' | 'premium';
-  subscription_expires_at?: string | null;
+  subscription_plan?: 'free' | 'pro' | 'premium';
+  subscription_end_date?: string | null;
+  subscription_expires_at?: string | null; // Kept for backward compatibility if needed
   school_logo?: string;
   school_color_hex?: string;
   created_at: string;

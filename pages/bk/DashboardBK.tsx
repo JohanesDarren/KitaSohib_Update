@@ -6,7 +6,7 @@ import { UserProfile, EmotionTestResult } from '../../types';
 import {
   Users, Search, School, AlertTriangle, 
   BarChart3, ChevronRight, Activity, LayoutDashboard,
-  Palette, Image as ImageIcon, Save
+  Palette, Image as ImageIcon, Save, CreditCard, ShieldCheck
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -34,15 +34,20 @@ export const DashboardBK: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState<StudentData | null>(null);
   const [isPremium, setIsPremium] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'theme'>('dashboard');
+  const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: string, isActive: boolean, endDate: string | null }>({ plan: 'free', isActive: false, endDate: null });
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'theme' | 'subscription'>('dashboard');
   const [themeForm, setThemeForm] = useState({ logo: '', color: '' });
   const [isSavingTheme, setIsSavingTheme] = useState(false);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [checkoutPlan, setCheckoutPlan] = useState<'pro' | 'premium' | null>(null);
+  const [checkoutMethod, setCheckoutMethod] = useState<'bank' | 'ewallet'>('bank');
 
   useEffect(() => { 
     loadData(); 
-    api.checkPremiumAccess().then(isPrem => {
-        setIsPremium(isPrem);
-        if (isPrem) {
+    api.getSchoolSubscriptionInfo().then(info => {
+        setIsPremium(info.isActive);
+        setSubscriptionInfo(info);
+        if (info.isActive) {
             api.getCurrentSchool().then(s => {
                 if(s) setThemeForm({ logo: s.school_logo || '', color: s.school_color_hex || '' });
             });
@@ -92,7 +97,8 @@ export const DashboardBK: React.FC = () => {
 
   const sidebarItems: any[] = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Overview', onClick: () => setActiveTab('dashboard') },
-    ...(isPremium ? [{ id: 'theme', icon: Palette, label: 'Kustomisasi Tema', onClick: () => setActiveTab('theme') }] : [])
+    ...(isPremium ? [{ id: 'theme', icon: Palette, label: 'Kustomisasi Tema', onClick: () => setActiveTab('theme') }] : []),
+    { id: 'subscription', icon: CreditCard, label: 'Langganan', onClick: () => setActiveTab('subscription') }
   ];
 
   const handleSaveTheme = async () => {
@@ -108,6 +114,29 @@ export const DashboardBK: React.FC = () => {
      }
   };
 
+  const handlePurchaseSubmit = async () => {
+      if (!user?.school_id || !checkoutPlan) return;
+      setIsPurchasing(true);
+      try {
+          const expires = new Date();
+          expires.setDate(expires.getDate() + 30); // 30 hari dari sekarang
+          await api.updateSchoolSubscription(user.school_id, checkoutPlan, expires.toISOString());
+          toast.success(`Selamat! Sekolah Anda kini menggunakan Paket ${checkoutPlan.toUpperCase()}`);
+          
+          setCheckoutPlan(null);
+          
+          // Auto-refresh state tanpa reload
+          const info = await api.getSchoolSubscriptionInfo();
+          setIsPremium(info.isActive);
+          setSubscriptionInfo(info);
+          setActiveTab('dashboard'); 
+      } catch(e) {
+          toast.error("Terjadi kesalahan saat memproses pembelian.");
+      } finally {
+          setIsPurchasing(false);
+      }
+  };
+
   return (
     <DashboardLayout
       title="BK Monitoring"
@@ -121,11 +150,17 @@ export const DashboardBK: React.FC = () => {
           <LoadingSpinner label="Menyinkronkan data murid..." />
         ) : (
           <div className="max-w-7xl mx-auto">
-            {/* HEADER SECTION */}
+             {/* HEADER SECTION */}
             <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
                <div>
-                  <h1 className="text-3xl font-black text-slate-900 tracking-tight">{activeTab === 'theme' ? 'White-Label Branding' : 'Kesehatan Mental Sekolah'}</h1>
-                  <p className="text-slate-500 font-medium mt-1 text-lg">{activeTab === 'theme' ? 'Kustomisasi tampilan aplikasi khusus untuk sekolah Anda.' : 'Visualisasi real-time radar psikologis seluruh murid.'}</p>
+                  <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+                    {activeTab === 'theme' ? 'White-Label Branding' : activeTab === 'subscription' ? 'Kelola Langganan' : 'Kesehatan Mental Sekolah'}
+                  </h1>
+                  <p className="text-slate-500 font-medium mt-1 text-lg">
+                    {activeTab === 'theme' ? 'Kustomisasi tampilan aplikasi khusus untuk sekolah Anda.' 
+                    : activeTab === 'subscription' ? 'Pilih paket terbaik untuk sekolah Anda. Langganan berlaku untuk seluruh Guru BK.' 
+                    : 'Visualisasi real-time radar psikologis seluruh murid.'}
+                  </p>
                </div>
                <Badge variant="success" size="md">
                   Database Sinkron
@@ -157,6 +192,96 @@ export const DashboardBK: React.FC = () => {
                          </Button>
                       </div>
                    </Card>
+                 </div>
+             ) : activeTab === 'subscription' ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12 animate-in fade-in">
+                    {/* FREE PLAN */}
+                    <Card padding="xl" className={`flex flex-col relative overflow-hidden ${!subscriptionInfo.isActive || subscriptionInfo.plan === 'free' ? 'ring-4 ring-slate-200' : ''}`}>
+                        {(!subscriptionInfo.isActive || subscriptionInfo.plan === 'free') && (
+                            <div className="absolute top-0 right-0 bg-slate-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-bl-xl">Paket Aktif</div>
+                        )}
+                        <div className="mb-6">
+                            <h3 className="text-2xl font-black text-slate-900">FREE</h3>
+                            <p className="text-slate-500 mt-2 text-sm">Fitur monitoring dasar</p>
+                        </div>
+                        <div className="mb-8">
+                            <span className="text-4xl font-black text-slate-900">Rp 0</span>
+                        </div>
+                        <ul className="space-y-4 mb-10 flex-1">
+                            {['Radar Psikologis Dasar', 'Tanpa Analitik Menyeluruh'].map((feat, i) => (
+                                <li key={i} className="flex items-center gap-3 text-slate-700 font-medium">
+                                    <ShieldCheck size={18} className="text-slate-400" /> {feat}
+                                </li>
+                            ))}
+                        </ul>
+                        <Button 
+                            disabled={true}
+                            className="w-full py-4 text-sm font-bold bg-slate-100 text-slate-500 hover:bg-slate-100 border-none"
+                            variant="outline"
+                        >
+                            {(!subscriptionInfo.isActive || subscriptionInfo.plan === 'free') ? 'Paket Anda Saat Ini' : 'Paket Dasar'}
+                        </Button>
+                    </Card>
+
+                    {/* PRO PLAN */}
+                    <Card padding="xl" className={`flex flex-col relative overflow-hidden ${subscriptionInfo.isActive && subscriptionInfo.plan === 'pro' ? 'ring-4 ring-indigo-500' : ''}`}>
+                        {subscriptionInfo.isActive && subscriptionInfo.plan === 'pro' && (
+                            <div className="absolute top-0 right-0 bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-bl-xl">Paket Aktif</div>
+                        )}
+                        <div className="mb-6">
+                            <h3 className="text-2xl font-black text-slate-900">PRO</h3>
+                            <p className="text-slate-500 mt-2 text-sm">Grafik mendalam & Ekspor Data</p>
+                        </div>
+                        <div className="mb-8">
+                            <span className="text-4xl font-black text-slate-900">500rb</span>
+                            <span className="text-slate-500 text-sm"> / bulan</span>
+                        </div>
+                        <ul className="space-y-4 mb-10 flex-1">
+                            {['Semua Grafik Analitik', 'Export Laporan', 'Limit AI 50 pesan/hari'].map((feat, i) => (
+                                <li key={i} className="flex items-center gap-3 text-slate-700 font-medium">
+                                    <ShieldCheck size={18} className="text-emerald-500" /> {feat}
+                                </li>
+                            ))}
+                        </ul>
+                        <Button 
+                            onClick={() => setCheckoutPlan('pro')} 
+                            disabled={isPurchasing || (subscriptionInfo.isActive && subscriptionInfo.plan === 'pro') || (subscriptionInfo.isActive && subscriptionInfo.plan === 'premium')}
+                            className="w-full py-4 text-sm font-bold"
+                            variant={(subscriptionInfo.isActive && (subscriptionInfo.plan === 'pro' || subscriptionInfo.plan === 'premium')) ? 'outline' : 'primary'}
+                        >
+                            {subscriptionInfo.isActive && subscriptionInfo.plan === 'pro' ? 'Paket Anda Saat Ini' : (subscriptionInfo.isActive && subscriptionInfo.plan === 'premium' ? 'Sudah Premium' : 'Pilih Paket')}
+                        </Button>
+                    </Card>
+
+                    {/* PREMIUM PLAN */}
+                    <Card padding="xl" className={`flex flex-col relative overflow-hidden border-indigo-200 ${subscriptionInfo.isActive && subscriptionInfo.plan === 'premium' ? 'ring-4 ring-orange-500' : ''}`}>
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-50" />
+                        {subscriptionInfo.isActive && subscriptionInfo.plan === 'premium' && (
+                            <div className="absolute top-0 right-0 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-bl-xl z-10">Paket Aktif</div>
+                        )}
+                        <div className="mb-6 relative z-10">
+                            <h3 className="text-2xl font-black text-indigo-600">PREMIUM</h3>
+                            <p className="text-slate-500 mt-2 text-sm">White-label & Akses AI Penuh</p>
+                        </div>
+                        <div className="mb-8 relative z-10">
+                            <span className="text-4xl font-black text-indigo-600">1 Juta</span>
+                            <span className="text-slate-500 text-sm"> / bulan</span>
+                        </div>
+                        <ul className="space-y-4 mb-10 flex-1 relative z-10">
+                            {['Fitur Paket Pro', 'White-labeling (Logo Sekolah)', 'AI Unlimited'].map((feat, i) => (
+                                <li key={i} className="flex items-center gap-3 text-slate-700 font-medium">
+                                    <ShieldCheck size={18} className="text-indigo-500" /> {feat}
+                                </li>
+                            ))}
+                        </ul>
+                        <Button 
+                            onClick={() => setCheckoutPlan('premium')} 
+                            disabled={isPurchasing || (subscriptionInfo.isActive && subscriptionInfo.plan === 'premium')}
+                            className="w-full py-4 text-sm font-bold relative z-10 bg-indigo-600 hover:bg-indigo-700 text-white"
+                        >
+                            {subscriptionInfo.isActive && subscriptionInfo.plan === 'premium' ? 'Paket Anda Saat Ini' : 'Pilih Paket'}
+                        </Button>
+                    </Card>
                 </div>
             ) : (
                 <>
@@ -227,18 +352,20 @@ export const DashboardBK: React.FC = () => {
                   </div>
                 </div>
             ) : (
-                <div className="mb-12 bg-gradient-to-br from-indigo-900 via-indigo-800 to-slate-900 rounded-[2.5rem] p-10 flex flex-col md:flex-row items-center justify-between shadow-2xl relative overflow-hidden">
+                 <div className="mb-12 bg-gradient-to-br from-indigo-900 via-indigo-800 to-slate-900 rounded-[2.5rem] p-10 flex flex-col md:flex-row items-center justify-between shadow-2xl relative overflow-hidden">
                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-3xl -mr-32 -mt-32 opacity-20" />
                    <div className="relative z-10 md:w-2/3">
                       <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-300 text-xs font-black uppercase tracking-widest mb-4">
                          <AlertTriangle size={14} /> Fitur Terkunci
                       </div>
                       <h2 className="text-3xl font-black text-white mb-2">Analitik Detail Institusi</h2>
-                      <p className="text-indigo-200 text-sm leading-relaxed">Upgrade langganan sekolah Anda ke <b>Premium</b> untuk membuka akses grafik statistik lanjutan (Tren Harian, Grafik Batang Risiko, dll) yang mempermudah pemantauan menyeluruh.</p>
+                      <p className="text-indigo-200 text-sm leading-relaxed">Upgrade langganan sekolah Anda ke <b>PRO</b> atau <b>Premium</b> untuk membuka akses grafik statistik lanjutan (Tren Harian, Grafik Batang Risiko, dll) yang mempermudah pemantauan menyeluruh.</p>
                    </div>
                    <div className="mt-8 md:mt-0 relative z-10">
-                      <button className="bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 px-8 py-4 rounded-2xl text-white font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center gap-2">
-                         Hubungi Admin Pusat
+                      <button 
+                        onClick={() => setActiveTab('subscription')}
+                        className="bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 px-8 py-4 rounded-2xl text-white font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center gap-2">
+                         Lihat Paket Langganan
                       </button>
                    </div>
                 </div>
@@ -339,6 +466,60 @@ export const DashboardBK: React.FC = () => {
               onClose={() => setSelectedStudent(null)}
               onDownload={() => toast.success("Menyiapkan dokumen PDF...")}
             />
+          )}
+
+          {checkoutPlan && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+                <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-white rounded-[2rem] shadow-2xl p-8 max-w-md w-full"
+                >
+                    <h3 className="text-2xl font-black text-slate-900 mb-6">Konfirmasi Pembayaran</h3>
+                    
+                    <div className="space-y-4 mb-8">
+                        <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+                            <span className="text-slate-500 font-medium">Instansi</span>
+                            <span className="font-bold text-slate-900 truncate max-w-[200px] text-right">{user?.school_name}</span>
+                        </div>
+                        <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+                            <span className="text-slate-500 font-medium">Paket Terpilih</span>
+                            <Badge variant={checkoutPlan === 'premium' ? 'warning' : 'primary'}>{checkoutPlan.toUpperCase()}</Badge>
+                        </div>
+                        <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+                            <span className="text-slate-500 font-medium">Total Harga</span>
+                            <span className="text-2xl font-black text-indigo-600">
+                                {checkoutPlan === 'pro' ? 'Rp 500.000' : 'Rp 1.000.000'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="mb-8">
+                        <label className="block text-sm font-bold text-slate-700 mb-3">Metode Pembayaran</label>
+                        <select 
+                            value={checkoutMethod}
+                            onChange={(e) => setCheckoutMethod(e.target.value as any)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        >
+                            <option value="bank">Transfer Bank (BCA/Mandiri/BNI)</option>
+                            <option value="ewallet">e-Wallet (GoPay/OVO/Dana)</option>
+                        </select>
+                    </div>
+
+                    <div className="flex gap-3">
+                        <Button variant="outline" className="flex-1" onClick={() => setCheckoutPlan(null)}>Batal</Button>
+                        <Button 
+                            variant="primary" 
+                            className="flex-1" 
+                            disabled={isPurchasing}
+                            onClick={handlePurchaseSubmit}
+                        >
+                            {isPurchasing ? 'Memproses...' : 'Bayar Sekarang'}
+                        </Button>
+                    </div>
+                </motion.div>
+            </div>
           )}
         </AnimatePresence>
       </div>

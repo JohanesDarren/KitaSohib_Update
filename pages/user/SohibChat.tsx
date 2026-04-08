@@ -172,6 +172,20 @@ export const SohibChat: React.FC = () => {
     }
 
     if (activeTab === 'ai') {
+      if (user.role === 'user') {
+          const isPremium = await api.checkPremiumAccess();
+          if (!isPremium) {
+              const today = new Date().toISOString().split('T')[0];
+              const key = `ks_ai_count_${user.id}_${today}`;
+              const count = parseInt(localStorage.getItem(key) || '0');
+              if (count >= 5) {
+                  toast.error("Limit AI harian habis. Upgrade ke Premium.");
+                  return;
+              }
+              localStorage.setItem(key, (count + 1).toString());
+          }
+      }
+
       const userMsg: ChatMessage = {
         id: 'u-' + Date.now(), sender_id: user.id, receiver_id: 's_ai',
         message: text, is_ai: false, timestamp: new Date().toISOString()

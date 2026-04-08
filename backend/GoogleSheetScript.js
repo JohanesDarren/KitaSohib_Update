@@ -34,7 +34,7 @@ function responseJSON(data) {
 function setupDatabase() {
   const schemas = {
     'users': ['id', 'username', 'email', 'password', 'full_name', 'role', 'school_id', 'school_name', 'status', 'assigned_kader_id', 'avatar_url', 'bio', 'latest_mood', 'is_lead', 'created_at'],
-    'schools': ['id', 'school_name', 'address', 'created_at'],
+    'schools': ['id', 'school_name', 'address', 'contact_email', 'phone', 'subscription_plan', 'subscription_expires_at', 'school_logo', 'school_color_hex', 'created_at'],
     'chats': ['id', 'sender_id', 'receiver_id', 'message', 'timestamp', 'is_ai', 'referral_id', 'sender_name', 'sender_role', 'is_read'], 
     'referrals': ['id', 'school_id', 'user_id', 'user_name', 'user_avatar', 'kader_id', 'kader_name', 'psychologist_id', 'status', 'notes', 'mood_score', 'created_at', 'updated_at', 'completed_at'],
     'mood_logs': ['id', 'user_id', 'mood_score', 'notes', 'timestamp'],

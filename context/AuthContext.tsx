@@ -10,6 +10,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   updateUser: (updates: Partial<UserProfile>) => void;
+  schoolTheme: { logo: string, color: string } | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -18,6 +19,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(null);
   // Default true agar App tidak merender rute sebelum cek localStorage selesai
   const [isLoading, setIsLoading] = useState(true);
+  const [schoolTheme, setSchoolTheme] = useState<{ logo: string, color: string } | null>(null);
 
   useEffect(() => {
     const initializeAuth = () => {
@@ -30,6 +32,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Validasi: Pastikan ID dan Role ada untuk mencegah bug 'undefined role'
           if (parsedUser && parsedUser.id && parsedUser.role) {
             setUser(parsedUser as UserProfile);
+            
+            // Terapkan Tema Kustom jika premium
+            api.getCurrentSchool().then(s => {
+                if (s && s.subscription_plan === 'premium' && (s.school_logo || s.school_color_hex)) {
+                    setSchoolTheme({ logo: s.school_logo || '', color: s.school_color_hex || '' });
+                    if (s.school_color_hex) applyCustomCSSColor(s.school_color_hex);
+                } else {
+                    const existingStyle = document.getElementById('whitelabel-theme');
+                    if (existingStyle) existingStyle.remove();
+                }
+            });
+            
           } else {
             // Data korup/tidak lengkap, bersihkan
             console.warn("Sesi lokal tidak valid, membersihkan...");
@@ -96,8 +110,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('ks_session', JSON.stringify(updated));
   };
 
+  const applyCustomCSSColor = (colorHex: string) => {
+      let existingStyle = document.getElementById('whitelabel-theme');
+      if (!existingStyle) {
+          existingStyle = document.createElement('style');
+          existingStyle.id = 'whitelabel-theme';
+          document.head.appendChild(existingStyle);
+      }
+      existingStyle.innerHTML = `
+        .bg-primary-500, .bg-indigo-600, .bg-blue-600 { background-color: ${colorHex} !important; border-color: ${colorHex} !important; }
+        .text-primary-500, .text-indigo-600, .text-primary-600 { color: ${colorHex} !important; }
+        .border-primary-500, .border-primary-100 { border-color: ${colorHex} !important; }
+        .ring-primary-500, .ring-primary-400 { --tw-ring-color: ${colorHex} !important; }
+      `;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, updateUser, schoolTheme }}>
       {children}
     </AuthContext.Provider>
   );

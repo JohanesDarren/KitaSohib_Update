@@ -151,9 +151,34 @@ export const api = {
           sheet: 'schools', 
           data: { 
               ...schoolData, 
+              subscription_plan: 'free',
+              subscription_expires_at: null,
               created_at: new Date().toISOString() 
           } 
       });
+  },
+  updateSchoolSubscription: async (id: string, plan: 'free' | 'premium', expires: string | null) => {
+      return await fetchGAS('update_row', { sheet: 'schools', id, data: { subscription_plan: plan, subscription_expires_at: expires } });
+  },
+  updateSchoolTheme: async (id: string, school_logo: string, school_color_hex: string) => {
+      return await fetchGAS('update_row', { sheet: 'schools', id, data: { school_logo, school_color_hex } });
+  },
+  getCurrentSchool: async (): Promise<School | undefined> => {
+      const u = getCurrentUser();
+      if (!u?.school_id) return undefined;
+      const schools = await api.getSchools();
+      return schools.find(s => String(s.id) === String(u.school_id));
+  },
+  checkPremiumAccess: async (schoolId?: string): Promise<boolean> => {
+      const user = getCurrentUser();
+      const id = schoolId || user?.school_id;
+      if (user?.role === 'admin') return true;
+      if (!id) return false;
+      const schools = await api.getSchools();
+      const mySchool = schools.find(s => String(s.id) === String(id));
+      if (!mySchool || mySchool.subscription_plan !== 'premium') return false;
+      if (mySchool.subscription_expires_at && new Date(mySchool.subscription_expires_at).getTime() < new Date().getTime()) return false;
+      return true;
   },
   deleteSchool: async (id: string) => await fetchGAS('delete_row', { sheet: 'schools', id }),
 

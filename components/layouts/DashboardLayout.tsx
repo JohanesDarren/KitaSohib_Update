@@ -31,7 +31,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   sidebarItems,
   activeItem
 }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, schoolTheme } = useAuth();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -50,11 +50,15 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       >
         <div className="p-8 border-b border-primary-100/50 flex justify-between items-center bg-white/30">
           <div className="flex items-center gap-3">
-             <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/30 text-white font-black text-sm">
-                KS
-             </div>
+             {schoolTheme?.logo ? (
+                <img src={schoolTheme.logo} className="w-10 h-10 rounded-xl object-contain shadow-lg bg-white p-1" alt="School Logo" />
+             ) : (
+                <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/30 text-white font-black text-sm">
+                   KS
+                </div>
+             )}
              <div>
-                <h1 className="text-lg font-black text-slate-900 tracking-tight">KitaSohib<span className="text-primary-500">.</span></h1>
+                <h1 className="text-lg font-black text-slate-900 tracking-tight">{user?.school_name || 'KitaSohib'}<span className="text-primary-500">.</span></h1>
                 <p className="text-[10px] font-bold text-primary-400 uppercase tracking-widest">{roleLabel}</p>
              </div>
           </div>

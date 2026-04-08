@@ -5,7 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 import { UserProfile, EmotionTestResult } from '../../types';
 import {
   Users, Search, School, AlertTriangle, 
-  BarChart3, ChevronRight, Activity, LayoutDashboard
+  BarChart3, ChevronRight, Activity, LayoutDashboard,
+  Palette, Image as ImageIcon, Save
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -16,6 +17,7 @@ import { DashboardLayout } from '../../components/layouts/DashboardLayout';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Form';
+import { Button } from '../../components/ui/Button';
 
 interface StudentData {
   profile: UserProfile;
@@ -31,8 +33,22 @@ export const DashboardBK: React.FC = () => {
   const [filterRisk, setFilterRisk] = useState<'Semua' | 'Tinggi' | 'Sedang' | 'Rendah'>('Semua');
   const [isLoading, setIsLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState<StudentData | null>(null);
+  const [isPremium, setIsPremium] = useState(false);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'theme'>('dashboard');
+  const [themeForm, setThemeForm] = useState({ logo: '', color: '' });
+  const [isSavingTheme, setIsSavingTheme] = useState(false);
 
-  useEffect(() => { loadData(); }, [user]);
+  useEffect(() => { 
+    loadData(); 
+    api.checkPremiumAccess().then(isPrem => {
+        setIsPremium(isPrem);
+        if (isPrem) {
+            api.getCurrentSchool().then(s => {
+                if(s) setThemeForm({ logo: s.school_logo || '', color: s.school_color_hex || '' });
+            });
+        }
+    });
+  }, [user]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -74,10 +90,23 @@ export const DashboardBK: React.FC = () => {
     return matchSearch && matchRisk;
   });
 
-  const sidebarItems = [
-    { id: 'dashboard', icon: LayoutDashboard, label: 'Overview', onClick: () => {} },
-    { id: 'students', icon: Users, label: 'Data Murid', onClick: () => {} },
+  const sidebarItems: any[] = [
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Overview', onClick: () => setActiveTab('dashboard') },
+    ...(isPremium ? [{ id: 'theme', icon: Palette, label: 'Kustomisasi Tema', onClick: () => setActiveTab('theme') }] : [])
   ];
+
+  const handleSaveTheme = async () => {
+     if (!user?.school_id) return;
+     setIsSavingTheme(true);
+     try {
+         await api.updateSchoolTheme(user.school_id, themeForm.logo, themeForm.color);
+         toast.success("Tema Kustom berhasil diperbarui! Muat ulang halaman untuk efek penuh.");
+     } catch (e) {
+         toast.error("Gagal memperbarui tema.");
+     } finally {
+         setIsSavingTheme(false);
+     }
+  };
 
   return (
     <DashboardLayout
@@ -85,7 +114,7 @@ export const DashboardBK: React.FC = () => {
       subtitle={user?.school_name || "Sekolah"}
       roleLabel="Guru BK"
       sidebarItems={sidebarItems}
-      activeItem="dashboard"
+      activeItem={activeTab}
     >
       <div className="p-8 pb-32">
         {isLoading ? (
@@ -95,79 +124,125 @@ export const DashboardBK: React.FC = () => {
             {/* HEADER SECTION */}
             <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
                <div>
-                  <h1 className="text-3xl font-black text-slate-900 tracking-tight">Kesehatan Mental Sekolah</h1>
-                  <p className="text-slate-500 font-medium mt-1 text-lg">Visualisasi real-time radar psikologis seluruh murid.</p>
+                  <h1 className="text-3xl font-black text-slate-900 tracking-tight">{activeTab === 'theme' ? 'White-Label Branding' : 'Kesehatan Mental Sekolah'}</h1>
+                  <p className="text-slate-500 font-medium mt-1 text-lg">{activeTab === 'theme' ? 'Kustomisasi tampilan aplikasi khusus untuk sekolah Anda.' : 'Visualisasi real-time radar psikologis seluruh murid.'}</p>
                </div>
                <Badge variant="success" size="md">
                   Database Sinkron
                </Badge>
             </header>
-            
-            {/* STATISTICS DASHBOARD */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-              {/* Main Visual Stats */}
-              <Card className="lg:col-span-2 group" padding="lg">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-50 group-hover:opacity-100 transition-opacity" />
-                
-                <div className="flex items-center justify-between mb-10 relative z-10">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-slate-50 text-slate-800 rounded-2xl"><BarChart3 size={24}/></div>
-                    <h3 className="font-black text-slate-900 uppercase text-xs tracking-[0.2em]">Analisis Distribusi Risiko</h3>
-                  </div>
-                  <Badge variant="primary" icon={Activity}>Real-time Data</Badge>
+
+            {activeTab === 'theme' ? (
+                <div className="animate-in fade-in space-y-8 max-w-2xl">
+                   <Card padding="lg">
+                      <h3 className="font-black text-xl text-slate-800 mb-6 flex items-center gap-2"><Palette size={24} className="text-indigo-500"/> Identitas Sekolah</h3>
+                      <div className="space-y-6">
+                         <div>
+                            <Input label="URL Logo Sekolah Baru" value={themeForm.logo} onChange={e => setThemeForm({...themeForm, logo: e.target.value})} placeholder="https://example.com/logo.png" />
+                            {themeForm.logo && (
+                                <div className="mt-4 p-4 border border-dashed rounded-xl bg-slate-50 flex justify-center">
+                                    <img src={themeForm.logo} className="h-16 object-contain" onError={(e) => (e.currentTarget.src = '')} />
+                                </div>
+                            )}
+                         </div>
+                         <div>
+                            <Input label="Warna Utama (HEX Code)" value={themeForm.color} onChange={e => setThemeForm({...themeForm, color: e.target.value})} placeholder="#2563EB" />
+                            <div className="mt-2 flex gap-3 items-center">
+                                <span className="text-xs text-slate-500 font-bold uppercase">Preview Warna:</span>
+                                <div className="w-8 h-8 rounded-full shadow-sm border border-slate-200" style={{ backgroundColor: themeForm.color || '#3B82F6' }}></div>
+                            </div>
+                         </div>
+                         <Button onClick={handleSaveTheme} className="w-full mt-4 py-4" disabled={isSavingTheme}>
+                             {isSavingTheme ? 'Menyimpan...' : 'Simpan Tema'} <Save size={18} className="ml-2"/>
+                         </Button>
+                      </div>
+                   </Card>
                 </div>
-                
-                <div className="space-y-8 relative z-10">
-                  {/* Bars */}
-                  {[
-                    { label: 'Risiko Tinggi', count: counts.Tinggi, color: 'bg-red-500', text: 'text-red-600', grad: 'from-red-500 to-rose-400' },
-                    { label: 'Risiko Sedang', count: counts.Sedang, color: 'bg-amber-500', text: 'text-amber-600', grad: 'from-amber-500 to-orange-400' },
-                    { label: 'Stabil', count: counts.Rendah, color: 'bg-emerald-500', text: 'text-emerald-600', grad: 'from-emerald-500 to-teal-400' }
-                  ].map(stat => (
-                    <div className="space-y-3" key={stat.label}>
-                      <div className="flex justify-between items-end">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 ${stat.color} rounded-full`} />
-                          <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{stat.label}</span>
+            ) : (
+                <>
+                {/* STATISTICS DASHBOARD OR PAYWALL */}
+            {isPremium ? (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12 animate-in fade-in">
+                  {/* Main Visual Stats */}
+                  <Card className="lg:col-span-2 group" padding="lg">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-50 group-hover:opacity-100 transition-opacity" />
+                    
+                    <div className="flex items-center justify-between mb-10 relative z-10">
+                      <div className="flex items-center gap-3">
+                        <div className="p-3 bg-slate-50 text-slate-800 rounded-2xl"><BarChart3 size={24}/></div>
+                        <h3 className="font-black text-slate-900 uppercase text-xs tracking-[0.2em]">Analisis Distribusi Risiko</h3>
+                      </div>
+                      <Badge variant="primary" icon={Activity}>Real-time Data</Badge>
+                    </div>
+                    
+                    <div className="space-y-8 relative z-10">
+                      {/* Bars */}
+                      {[
+                        { label: 'Risiko Tinggi', count: counts.Tinggi, color: 'bg-red-500', text: 'text-red-600', grad: 'from-red-500 to-rose-400' },
+                        { label: 'Risiko Sedang', count: counts.Sedang, color: 'bg-amber-500', text: 'text-amber-600', grad: 'from-amber-500 to-orange-400' },
+                        { label: 'Stabil', count: counts.Rendah, color: 'bg-emerald-500', text: 'text-emerald-600', grad: 'from-emerald-500 to-teal-400' }
+                      ].map(stat => (
+                        <div className="space-y-3" key={stat.label}>
+                          <div className="flex justify-between items-end">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-2 h-2 ${stat.color} rounded-full`} />
+                              <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{stat.label}</span>
+                            </div>
+                            <span className={`text-sm font-black ${stat.text}`}>{Math.round((stat.count/total)*100)}%</span>
+                          </div>
+                          <div className="h-5 bg-slate-50 rounded-full overflow-hidden border border-slate-100 p-1">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${(stat.count/total)*100}%` }}
+                              className={`h-full bg-gradient-to-r ${stat.grad} rounded-full shadow-sm`} 
+                            />
+                          </div>
                         </div>
-                        <span className={`text-sm font-black ${stat.text}`}>{Math.round((stat.count/total)*100)}%</span>
-                      </div>
-                      <div className="h-5 bg-slate-50 rounded-full overflow-hidden border border-slate-100 p-1">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${(stat.count/total)*100}%` }}
-                          className={`h-full bg-gradient-to-r ${stat.grad} rounded-full shadow-sm`} 
-                        />
-                      </div>
+                      ))}
                     </div>
-                  ))}
+                  </Card>
+
+                  {/* Key Metrics Counter */}
+                  <div className="bg-[#0F172A] rounded-[2.5rem] p-10 text-white flex flex-col justify-between shadow-2xl shadow-slate-900/20 relative overflow-hidden">
+                     <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+                        <svg className="h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                           <path d="M0 100 C 20 0 50 0 100 100" fill="none" stroke="white" strokeWidth="0.5" />
+                        </svg>
+                     </div>
+                     
+                     <div className="relative z-10">
+                        <div className="w-14 h-14 bg-white/10 rounded-[1.5rem] flex items-center justify-center mb-6 border border-white/10">
+                           <Users size={28} className="text-indigo-400" />
+                        </div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-2">Populasi Terdaftar</p>
+                        <h4 className="text-6xl font-black tracking-tighter">{students.length}</h4>
+                     </div>
+
+                     <button 
+                        onClick={() => loadData()}
+                        className="w-full mt-10 py-4 bg-indigo-600 hover:bg-indigo-700 rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-3"
+                     >
+                        <Activity size={16} /> Perbarui Data
+                     </button>
+                  </div>
                 </div>
-              </Card>
-
-              {/* Key Metrics Counter */}
-              <div className="bg-[#0F172A] rounded-[2.5rem] p-10 text-white flex flex-col justify-between shadow-2xl shadow-slate-900/20 relative overflow-hidden">
-                 <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-                    <svg className="h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                       <path d="M0 100 C 20 0 50 0 100 100" fill="none" stroke="white" strokeWidth="0.5" />
-                    </svg>
-                 </div>
-                 
-                 <div className="relative z-10">
-                    <div className="w-14 h-14 bg-white/10 rounded-[1.5rem] flex items-center justify-center mb-6 border border-white/10">
-                       <Users size={28} className="text-indigo-400" />
-                    </div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-2">Populasi Terdaftar</p>
-                    <h4 className="text-6xl font-black tracking-tighter">{students.length}</h4>
-                 </div>
-
-                 <button 
-                    onClick={() => loadData()}
-                    className="w-full mt-10 py-4 bg-indigo-600 hover:bg-indigo-700 rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-3"
-                 >
-                    <Activity size={16} /> Perbarui Data
-                 </button>
-              </div>
-            </div>
+            ) : (
+                <div className="mb-12 bg-gradient-to-br from-indigo-900 via-indigo-800 to-slate-900 rounded-[2.5rem] p-10 flex flex-col md:flex-row items-center justify-between shadow-2xl relative overflow-hidden">
+                   <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-3xl -mr-32 -mt-32 opacity-20" />
+                   <div className="relative z-10 md:w-2/3">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-300 text-xs font-black uppercase tracking-widest mb-4">
+                         <AlertTriangle size={14} /> Fitur Terkunci
+                      </div>
+                      <h2 className="text-3xl font-black text-white mb-2">Analitik Detail Institusi</h2>
+                      <p className="text-indigo-200 text-sm leading-relaxed">Upgrade langganan sekolah Anda ke <b>Premium</b> untuk membuka akses grafik statistik lanjutan (Tren Harian, Grafik Batang Risiko, dll) yang mempermudah pemantauan menyeluruh.</p>
+                   </div>
+                   <div className="mt-8 md:mt-0 relative z-10">
+                      <button className="bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 px-8 py-4 rounded-2xl text-white font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center gap-2">
+                         Hubungi Admin Pusat
+                      </button>
+                   </div>
+                </div>
+            )}
 
             {/* CONTROLS */}
             <Card padding="md" className="mb-10 flex flex-col lg:flex-row gap-5 items-center">
@@ -250,6 +325,8 @@ export const DashboardBK: React.FC = () => {
                 </div>
               )}
             </div>
+            </>
+            )}
           </div>
         )}
 

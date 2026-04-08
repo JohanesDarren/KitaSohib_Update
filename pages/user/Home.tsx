@@ -31,7 +31,7 @@ interface Notification {
 }
 
 export const Home: React.FC = () => {
-  const { user } = useAuth();
+  const { user, schoolTheme } = useAuth();
   const navigate = useNavigate();
   
   const [moodLevel, setMoodLevel] = useState(3);
@@ -149,11 +149,15 @@ export const Home: React.FC = () => {
 
   return (
     <div className="min-h-screen">
-      {/* Header - Glass Effect */}
       <div className="px-6 pt-10 pb-6 flex justify-between items-center sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100/50">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Halo, {user?.full_name?.split(' ')[0]}! 👋</h1>
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Langkah kecil hari ini 🌿</p>
+        <div className="flex items-center gap-4">
+          {schoolTheme?.logo && (
+             <img src={schoolTheme.logo} className="w-10 h-10 rounded-xl object-contain bg-white shadow-sm" alt="School Logo" />
+          )}
+          <div>
+            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Halo, {user?.full_name?.split(' ')[0]}! 👋</h1>
+            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Langkah kecil hari ini 🌿</p>
+          </div>
         </div>
         
         {/* Notification Bell */}

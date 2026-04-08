@@ -8,7 +8,8 @@ import {
   Users, School as SchoolIcon, FileText, Calendar, Trash2, 
   ShieldCheck, Search, Activity, BarChart3, MessageSquare, 
   Plus, Building, Mail, Phone, MapPin, PieChart, TrendingUp,
-  X, AlertTriangle, Image as ImageIcon, Globe, Clock, AlignLeft
+  X, AlertTriangle, Image as ImageIcon, Globe, Clock, AlignLeft,
+  Settings
 } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -62,6 +63,10 @@ export const DashboardAdmin: React.FC = () => {
   const [showSchoolModal, setShowSchoolModal] = useState(false);
   const [showAgendaModal, setShowAgendaModal] = useState(false);
   const [showArticleModal, setShowArticleModal] = useState(false);
+
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionTarget, setSubscriptionTarget] = useState<School | null>(null);
+  const [subForm, setSubForm] = useState({ plan: 'free', expiresAt: '' });
 
   // --- FORM STATES ---
   const [newUser, setNewUser] = useState({
@@ -187,6 +192,18 @@ export const DashboardAdmin: React.FC = () => {
           loadData();
       } catch (e) {
           toast.error("Gagal menambahkan sekolah.");
+      }
+  };
+
+  const handleUpdateSubscription = async () => {
+      if (!subscriptionTarget) return;
+      try {
+          await api.updateSchoolSubscription(subscriptionTarget.id, subForm.plan as any, subForm.expiresAt || null);
+          toast.success("Paket Berlangganan Diperbarui!");
+          setShowSubscriptionModal(false);
+          loadData();
+      } catch (e) {
+          toast.error("Gagal memperbarui paket.");
       }
   };
 
@@ -397,8 +414,21 @@ export const DashboardAdmin: React.FC = () => {
                                             {s.address && <p className="text-xs text-slate-500 flex items-center gap-2"><MapPin size={12}/> {s.address}</p>}
                                             {s.phone && <p className="text-xs text-slate-500 flex items-center gap-2"><Phone size={12}/> {s.phone}</p>}
                                         </div>
+                                        <div className="flex gap-2">
+                                            <Badge variant={s.subscription_plan === 'premium' ? 'success' : 'neutral'}>{s.subscription_plan === 'premium' ? 'Premium' : 'Free'}</Badge>
+                                            {s.subscription_expires_at && (
+                                                <Badge variant="outline">{new Date(s.subscription_expires_at).toLocaleDateString()}</Badge>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="pt-4 border-t border-slate-50 flex justify-between items-center">
+                                    <div className="pt-4 border-t border-slate-50 flex justify-between items-center mt-4">
+                                        <div className="flex gap-2">
+                                            <button onClick={() => {
+                                                setSubscriptionTarget(s);
+                                                setSubForm({ plan: s.subscription_plan || 'free', expiresAt: s.subscription_expires_at ? s.subscription_expires_at.split('T')[0] : '' });
+                                                setShowSubscriptionModal(true);
+                                            }} className="text-slate-400 hover:text-indigo-600 p-2 border border-slate-100 rounded-lg hover:bg-slate-50 transition-all flex gap-2 items-center text-xs font-bold"><Settings size={14}/> Kelola Paket</button>
+                                        </div>
                                         <span className="text-[10px] font-bold text-slate-300">ID: {s.id.substring(0,6)}</span>
                                         <button onClick={(e) => requestDelete(e, 'school', s.id)} className="text-slate-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-all"><Trash2 size={18}/></button>
                                     </div>
@@ -580,6 +610,50 @@ export const DashboardAdmin: React.FC = () => {
                             </div>
                             <Textarea label="Konten Artikel" value={newArticle.content} onChange={e => setNewArticle({...newArticle, content: e.target.value})} className="h-40" />
                             <div className="flex gap-3 pt-4"><Button variant="ghost" onClick={() => setShowArticleModal(false)} className="flex-1">Batal</Button><Button onClick={handleCreateArticle} className="flex-1">Posting</Button></div>
+                        </div>
+                    </motion.div>
+                </div>
+            )}
+        </AnimatePresence>
+
+        {/* Subscription Modal */}
+        <AnimatePresence>
+            {showSubscriptionModal && subscriptionTarget && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+                    <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl">
+                        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6">
+                            <Settings size={24}/>
+                        </div>
+                        <h3 className="font-black text-xl text-slate-800 mb-2">Paket & Tagihan</h3>
+                        <p className="text-xs text-slate-500 mb-6 font-medium">Kelola akses fitur premium untuk <span className="font-bold text-slate-700">{subscriptionTarget.school_name}</span>.</p>
+                        
+                        <div className="space-y-5">
+                            <Select 
+                                label="Status Paket" 
+                                value={subForm.plan} 
+                                onChange={e => setSubForm({...subForm, plan: e.target.value})} 
+                                options={[
+                                    {value: 'free', label: 'Basic / Free'}, 
+                                    {value: 'premium', label: 'SaaS Premium'}
+                                ]} 
+                            />
+                            
+                            {subForm.plan === 'premium' && (
+                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                    <Input 
+                                        label="Berlaku Sampai (Tgl Kadaluarsa)" 
+                                        type="date" 
+                                        value={subForm.expiresAt} 
+                                        onChange={e => setSubForm({...subForm, expiresAt: e.target.value})} 
+                                    />
+                                    <p className="text-[10px] text-slate-400 mt-2">Kosongkan jika paket berlaku selamanya (seumur hidup).</p>
+                                </div>
+                            )}
+                            
+                            <div className="flex gap-3 pt-4">
+                                <Button variant="ghost" onClick={() => setShowSubscriptionModal(false)} className="flex-1">Batal</Button>
+                                <Button onClick={handleUpdateSubscription} className="flex-1">Simpan</Button>
+                            </div>
                         </div>
                     </motion.div>
                 </div>

@@ -1,0 +1,7 @@
+{
+  "name": "KitaSohib GO GO GO",
+  "description": "Platform AI KitaSohib",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

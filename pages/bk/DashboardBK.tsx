@@ -1,0 +1,270 @@
+
+import React, { useEffect, useState } from 'react';
+import { api } from '../../services/mockSupabase';
+import { useAuth } from '../../context/AuthContext';
+import { UserProfile, EmotionTestResult } from '../../types';
+import {
+  Users, Search, School, AlertTriangle, 
+  BarChart3, ChevronRight, Activity, LayoutDashboard
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
+import { StudentDetailView } from './components/StudentDetailView';
+import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { DashboardLayout } from '../../components/layouts/DashboardLayout';
+import { Card } from '../../components/ui/Card';
+import { Badge } from '../../components/ui/Badge';
+import { Input } from '../../components/ui/Form';
+
+interface StudentData {
+  profile: UserProfile;
+  latestResult: EmotionTestResult | null;
+  risk: 'Rendah' | 'Sedang' | 'Tinggi';
+}
+
+export const DashboardBK: React.FC = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [students, setStudents] = useState<StudentData[]>([]);
+  const [search, setSearch] = useState('');
+  const [filterRisk, setFilterRisk] = useState<'Semua' | 'Tinggi' | 'Sedang' | 'Rendah'>('Semua');
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedStudent, setSelectedStudent] = useState<StudentData | null>(null);
+
+  useEffect(() => { loadData(); }, [user]);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const allUsers = await api.getUsers();
+      const allResults = await api.getEmotionResults();
+      const filteredData = allUsers
+        .filter(u => u.role === 'user' && u.school_id === user?.school_id)
+        .map(u => {
+          const userResults = allResults
+            .filter((r: EmotionTestResult) => r.user_id === u.id)
+            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          const latest = userResults[0] || null;
+          let risk: 'Rendah' | 'Sedang' | 'Tinggi' = 'Rendah';
+          if (latest) {
+            if (latest.score >= 71) risk = 'Tinggi';
+            else if (latest.score >= 41) risk = 'Sedang';
+          }
+          return { profile: u, latestResult: latest, risk };
+        });
+      setStudents(filteredData);
+    } catch (e) { 
+      toast.error("Gagal memuat data"); 
+    } finally { 
+      setIsLoading(false); 
+    }
+  };
+
+  const total = students.length || 1;
+  const counts = {
+    Tinggi: students.filter(s => s.risk === 'Tinggi').length,
+    Sedang: students.filter(s => s.risk === 'Sedang').length,
+    Rendah: students.filter(s => s.risk === 'Rendah').length,
+  };
+
+  const filtered = students.filter(s => {
+    const matchSearch = s.profile.full_name.toLowerCase().includes(search.toLowerCase());
+    const matchRisk = filterRisk === 'Semua' || s.risk === filterRisk;
+    return matchSearch && matchRisk;
+  });
+
+  const sidebarItems = [
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Overview', onClick: () => {} },
+    { id: 'students', icon: Users, label: 'Data Murid', onClick: () => {} },
+  ];
+
+  return (
+    <DashboardLayout
+      title="BK Monitoring"
+      subtitle={user?.school_name || "Sekolah"}
+      roleLabel="Guru BK"
+      sidebarItems={sidebarItems}
+      activeItem="dashboard"
+    >
+      <div className="p-8 pb-32">
+        {isLoading ? (
+          <LoadingSpinner label="Menyinkronkan data murid..." />
+        ) : (
+          <div className="max-w-7xl mx-auto">
+            {/* HEADER SECTION */}
+            <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+               <div>
+                  <h1 className="text-3xl font-black text-slate-900 tracking-tight">Kesehatan Mental Sekolah</h1>
+                  <p className="text-slate-500 font-medium mt-1 text-lg">Visualisasi real-time radar psikologis seluruh murid.</p>
+               </div>
+               <Badge variant="success" size="md">
+                  Database Sinkron
+               </Badge>
+            </header>
+            
+            {/* STATISTICS DASHBOARD */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+              {/* Main Visual Stats */}
+              <Card className="lg:col-span-2 group" padding="lg">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-50 group-hover:opacity-100 transition-opacity" />
+                
+                <div className="flex items-center justify-between mb-10 relative z-10">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-slate-50 text-slate-800 rounded-2xl"><BarChart3 size={24}/></div>
+                    <h3 className="font-black text-slate-900 uppercase text-xs tracking-[0.2em]">Analisis Distribusi Risiko</h3>
+                  </div>
+                  <Badge variant="primary" icon={Activity}>Real-time Data</Badge>
+                </div>
+                
+                <div className="space-y-8 relative z-10">
+                  {/* Bars */}
+                  {[
+                    { label: 'Risiko Tinggi', count: counts.Tinggi, color: 'bg-red-500', text: 'text-red-600', grad: 'from-red-500 to-rose-400' },
+                    { label: 'Risiko Sedang', count: counts.Sedang, color: 'bg-amber-500', text: 'text-amber-600', grad: 'from-amber-500 to-orange-400' },
+                    { label: 'Stabil', count: counts.Rendah, color: 'bg-emerald-500', text: 'text-emerald-600', grad: 'from-emerald-500 to-teal-400' }
+                  ].map(stat => (
+                    <div className="space-y-3" key={stat.label}>
+                      <div className="flex justify-between items-end">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 ${stat.color} rounded-full`} />
+                          <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{stat.label}</span>
+                        </div>
+                        <span className={`text-sm font-black ${stat.text}`}>{Math.round((stat.count/total)*100)}%</span>
+                      </div>
+                      <div className="h-5 bg-slate-50 rounded-full overflow-hidden border border-slate-100 p-1">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(stat.count/total)*100}%` }}
+                          className={`h-full bg-gradient-to-r ${stat.grad} rounded-full shadow-sm`} 
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Key Metrics Counter */}
+              <div className="bg-[#0F172A] rounded-[2.5rem] p-10 text-white flex flex-col justify-between shadow-2xl shadow-slate-900/20 relative overflow-hidden">
+                 <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+                    <svg className="h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                       <path d="M0 100 C 20 0 50 0 100 100" fill="none" stroke="white" strokeWidth="0.5" />
+                    </svg>
+                 </div>
+                 
+                 <div className="relative z-10">
+                    <div className="w-14 h-14 bg-white/10 rounded-[1.5rem] flex items-center justify-center mb-6 border border-white/10">
+                       <Users size={28} className="text-indigo-400" />
+                    </div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-2">Populasi Terdaftar</p>
+                    <h4 className="text-6xl font-black tracking-tighter">{students.length}</h4>
+                 </div>
+
+                 <button 
+                    onClick={() => loadData()}
+                    className="w-full mt-10 py-4 bg-indigo-600 hover:bg-indigo-700 rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-3"
+                 >
+                    <Activity size={16} /> Perbarui Data
+                 </button>
+              </div>
+            </div>
+
+            {/* CONTROLS */}
+            <Card padding="md" className="mb-10 flex flex-col lg:flex-row gap-5 items-center">
+              <Input 
+                icon={Search} 
+                placeholder="Cari murid..." 
+                value={search} 
+                onChange={(e) => setSearch(e.target.value)}
+                className="flex-1"
+              />
+              <div className="flex bg-slate-50 p-1.5 rounded-[1.5rem] border border-slate-100">
+                {['Semua', 'Tinggi', 'Sedang', 'Rendah'].map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setFilterRisk(r as any)}
+                    className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${
+                      filterRisk === r ? 'bg-white text-indigo-600 shadow-sm border border-slate-200' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    {r === 'Tinggi' && <AlertTriangle size={14} className={filterRisk === r ? 'text-red-500' : ''}/>}
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </Card>
+
+            {/* DATA GRID */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {filtered.length > 0 ? (
+                filtered.map(s => (
+                  <Card 
+                    key={s.profile.id} 
+                    interactive 
+                    onClick={() => setSelectedStudent(s)}
+                    padding="lg"
+                    className="group"
+                  >
+                    {s.risk === 'Tinggi' && (
+                      <div className="absolute top-6 right-6 text-red-500 animate-bounce">
+                        <AlertTriangle size={24} fill="currentColor" className="opacity-10" />
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-5 mb-8">
+                      <div className="relative">
+                        <img src={s.profile.avatar_url} className="w-16 h-16 rounded-[1.8rem] object-cover bg-slate-50 ring-4 ring-slate-50 shadow-sm" alt="Avatar" />
+                        <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-4 border-white ${s.risk === 'Tinggi' ? 'bg-red-500' : s.risk === 'Sedang' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-black text-slate-900 leading-tight truncate">{s.profile.full_name}</h3>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">NIS: {s.profile.username}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-6 border-t border-slate-50">
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Skor Radar</p>
+                        <div className="flex items-baseline gap-1">
+                           <span className={`text-3xl font-black tracking-tighter ${s.risk === 'Tinggi' ? 'text-red-600' : 'text-slate-900'}`}>{s.latestResult?.score || 0}</span>
+                           <span className="text-[10px] font-bold text-slate-300">/100</span>
+                        </div>
+                      </div>
+                      <Badge variant={s.risk === 'Tinggi' ? 'danger' : s.risk === 'Sedang' ? 'warning' : 'success'}>
+                        {s.risk} Risk
+                      </Badge>
+                    </div>
+                    
+                    <div className="mt-6 flex items-center gap-2 text-indigo-600 font-black text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                       Buka Detail Analisis <ChevronRight size={14} />
+                    </div>
+                  </Card>
+                ))
+              ) : (
+                <div className="col-span-full py-32 text-center bg-white rounded-[3rem] border border-dashed border-slate-300">
+                   <div className="w-20 h-20 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                      <Users size={32} className="text-slate-200" />
+                   </div>
+                   <h3 className="text-lg font-black text-slate-800">Tidak ada data ditemukan</h3>
+                   <p className="text-slate-400 font-medium mt-1 uppercase text-[10px] tracking-[0.2em]">Coba ubah kriteria filter atau kata kunci pencarian</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* DETAIL MODAL */}
+        <AnimatePresence>
+          {selectedStudent && (
+            <StudentDetailView 
+              student={selectedStudent.profile} 
+              result={selectedStudent.latestResult}
+              onClose={() => setSelectedStudent(null)}
+              onDownload={() => toast.success("Menyiapkan dokumen PDF...")}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+    </DashboardLayout>
+  );
+};

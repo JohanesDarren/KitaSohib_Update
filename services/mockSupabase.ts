@@ -7,7 +7,7 @@ import {
 } from '../types';
 
 // GUNAKAN URL WEB APP DEPLOYMENT ANDA DI SINI
-const API_URL = "https://script.google.com/macros/s/AKfycbyC_9dKwII0Fo6pN9oSVXpyPpdtaE90gJzpQQkZcgE2Ea7IPxmXhPMUAtBsakK3BWzN/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbyGpHpNlJBjpeYNWoizRkRpUfT7-qH3DYkCpAFCoP_X5NXBQDMpaqKqGbgdiISB9k-H/exec";
 
 async function fetchGAS<T>(action: string, payload: any = {}): Promise<T> {
   const isReadOperation = action.startsWith('get_') || action.startsWith('fetch');
@@ -88,6 +88,42 @@ function getCurrentUser(): UserProfile | null {
   } catch(e) { return null; }
 }
 
+/**
+ * Resolve school_id dari user session.
+ * Jika school_id tidak ada (sesi lama), fallback ke pencarian by school_name.
+ * Menyimpan hasilnya kembali ke sesi agar tidak perlu re-lookup setiap saat.
+ */
+async function resolveSchoolId(schools: School[]): Promise<string | null> {
+  const u = getCurrentUser();
+  if (!u) return null;
+
+  // Kasus normal: school_id sudah ada di sesi
+  if (u.school_id && String(u.school_id).trim() !== '') {
+    return String(u.school_id);
+  }
+
+  // Fallback: cari by school_name (sesi lama tidak punya school_id)
+  if (u.school_name) {
+    const matched = schools.find(s =>
+      String(s.school_name).toLowerCase().trim() === String(u.school_name).toLowerCase().trim()
+    );
+    if (matched) {
+      // Simpan kembali ke sesi agar tidak perlu lookup lagi
+      try {
+        const raw = localStorage.getItem('ks_session');
+        if (raw) {
+          const session = JSON.parse(raw);
+          session.school_id = matched.id;
+          localStorage.setItem('ks_session', JSON.stringify(session));
+        }
+      } catch(_) {}
+      return String(matched.id);
+    }
+  }
+
+  return null;
+}
+
 function filterBySchool<T extends { school_id?: string }>(items: T[]): T[] {
   const user = getCurrentUser();
   if (user?.role === 'admin') return items;
@@ -160,49 +196,70 @@ export const api = {
   updateSchoolSubscription: async (id: string, plan: 'free' | 'pro' | 'premium', endDate: string | null) => {
       return await fetchGAS('update_row', { sheet: 'schools', id, data: { subscription_plan: plan, subscription_end_date: endDate } });
   },
+  // Dedicated endpoint untuk upgrade plan - dengan fallback resolver school_id
+  upgradeSchoolPlan: async (school_id: string, plan: 'pro' | 'premium'): Promise<{ success: boolean, plan: string, subscription_end_date: string }> => {
+      // Jika school_id tidak tersedia, coba resolve via school_name
+      let resolvedId = school_id && school_id !== 'undefined' && school_id !== '' ? school_id : null;
+      if (!resolvedId) {
+          const schools = await api.getSchools();
+          resolvedId = await resolveSchoolId(schools);
+      }
+      if (!resolvedId) throw new Error('Sekolah tidak ditemukan. Pastikan akun Guru BK sudah terdaftar di sekolah.');
+
+      try {
+          // Coba pakai dedicated endpoint baru
+          const result = await fetchGAS<any>('upgrade_plan', { school_id: String(resolvedId), plan });
+          return result;
+      } catch(primaryErr) {
+          // Fallback: pakai update_row generik jika endpoint baru belum di-deploy
+          console.warn('upgrade_plan endpoint belum tersedia, fallback ke update_row:', primaryErr);
+          const expires = new Date();
+          expires.setDate(expires.getDate() + 30);
+          const endDateISO = expires.toISOString();
+          await fetchGAS('update_row', { sheet: 'schools', id: String(resolvedId), data: { subscription_plan: plan, subscription_end_date: endDateISO } });
+          return { success: true, plan, subscription_end_date: endDateISO };
+      }
+  },
   updateSchoolTheme: async (id: string, school_logo: string, school_color_hex: string) => {
       return await fetchGAS('update_row', { sheet: 'schools', id, data: { school_logo, school_color_hex } });
   },
   getCurrentSchool: async (): Promise<School | undefined> => {
-      const u = getCurrentUser();
-      if (!u?.school_id) return undefined;
       const schools = await api.getSchools();
-      return schools.find(s => String(s.id) === String(u.school_id));
+      const id = await resolveSchoolId(schools);
+      if (!id) return undefined;
+      return schools.find(s => String(s.id) === id);
   },
   checkPremiumAccess: async (schoolId?: string): Promise<boolean> => {
       const user = getCurrentUser();
-      const id = schoolId || user?.school_id;
       if (user?.role === 'admin') return true;
-      if (!id) return false;
       const schools = await api.getSchools();
-      const mySchool = schools.find(s => String(s.id) === String(id));
+      const id = schoolId ? String(schoolId) : await resolveSchoolId(schools);
+      if (!id) return false;
+      const mySchool = schools.find(s => String(s.id) === id);
       if (!mySchool) return false;
-      
       const isSubscribed = mySchool.subscription_plan === 'pro' || mySchool.subscription_plan === 'premium';
       if (!isSubscribed) return false;
-      
       const endDateStr = mySchool.subscription_end_date || mySchool.subscription_expires_at;
       if (endDateStr && new Date(endDateStr).getTime() < new Date().getTime()) return false;
-      
       return true;
   },
   getSchoolSubscriptionInfo: async (schoolId?: string) => {
       const user = getCurrentUser();
-      const id = schoolId || user?.school_id;
-      if (!id) return { plan: 'free', isActive: false };
+      if (user?.role === 'admin') return { plan: 'premium', isActive: true, endDate: null };
       const schools = await api.getSchools();
-      const mySchool = schools.find(s => String(s.id) === String(id));
-      if (!mySchool) return { plan: 'free', isActive: false };
-      
+      const id = schoolId ? String(schoolId) : await resolveSchoolId(schools);
+      if (!id) return { plan: 'free', isActive: false, endDate: null };
+      const mySchool = schools.find(s => String(s.id) === id);
+      if (!mySchool) return { plan: 'free', isActive: false, endDate: null };
       let isActive = mySchool.subscription_plan === 'pro' || mySchool.subscription_plan === 'premium';
       const endDateStr = mySchool.subscription_end_date || mySchool.subscription_expires_at;
       if (isActive && endDateStr && new Date(endDateStr).getTime() < new Date().getTime()) {
           isActive = false;
       }
-      return { 
-          plan: mySchool.subscription_plan || 'free', 
+      return {
+          plan: mySchool.subscription_plan || 'free',
           isActive,
-          endDate: endDateStr
+          endDate: endDateStr || null
       };
   },
   deleteSchool: async (id: string) => await fetchGAS('delete_row', { sheet: 'schools', id }),

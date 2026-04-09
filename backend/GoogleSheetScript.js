@@ -343,13 +343,52 @@ function handleLogin(payload) {
   
   const cleanUser = { ...user };
   delete cleanUser.password;
+
+  // JOIN data sekolah agar frontend selalu mendapat status langganan terbaru
+  if (cleanUser.school_id) {
+    try {
+      const schools = getTable('schools');
+      const school = schools.find(s => String(s.id) === String(cleanUser.school_id));
+      if (school) {
+        cleanUser.school_subscription_plan     = school.subscription_plan     || 'free';
+        cleanUser.school_subscription_end_date = school.subscription_end_date || school.subscription_expires_at || null;
+        cleanUser.school_logo                  = school.school_logo           || '';
+        cleanUser.school_color_hex             = school.school_color_hex      || '';
+      }
+    } catch(e) {
+      // Gagal join sekolah, abaikan agar login tetap berhasil
+    }
+  }
+
   return cleanUser;
+}
+
+// --- UPGRADE PLAN HANDLER ---
+// Dedicated endpoint agar type-coercion ID sekolah selalu aman
+function handleUpgradePlan(payload) {
+  const { school_id, plan } = payload;
+  if (!school_id) throw new Error('school_id wajib diisi');
+  if (!plan || !['pro', 'premium'].includes(plan)) throw new Error('Plan tidak valid. Pilih \'pro\' atau \'premium\'');
+
+  const endDate = new Date();
+  endDate.setDate(endDate.getDate() + 30);
+  const endDateISO = endDate.toISOString();
+
+  // Update kolom subscription di tabel schools
+  const result = updateRowInternal('schools', 'id', String(school_id), {
+    subscription_plan: plan,
+    subscription_end_date: endDateISO,
+    subscription_expires_at: endDateISO  // tulis ke kedua kolom untuk kompatibilitas
+  });
+
+  return { success: true, plan: plan, subscription_end_date: endDateISO, school_id: String(school_id) };
 }
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
   // Increased lock timeout to prevent collision on high concurrency
   if (!lock.tryLock(30000)) return responseJSON({ status: 'error', message: 'Server busy' });
+
   
   try {
     const params = JSON.parse(e.postData.contents);
@@ -374,6 +413,7 @@ function doPost(e) {
       case 'forum_reply': result = handleForumReply(payload); break;
       case 'forum_like': result = handleForumLike(payload); break;
       case 'add_article_comment': result = handleAddArticleComment(payload); break;
+      case 'upgrade_plan': result = handleUpgradePlan(payload); break;
       default: return responseJSON({ status: 'error', message: 'Action not found' });
     }
     

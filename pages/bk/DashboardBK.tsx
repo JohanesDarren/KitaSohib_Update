@@ -33,8 +33,21 @@ export const DashboardBK: React.FC = () => {
   const [filterRisk, setFilterRisk] = useState<'Semua' | 'Tinggi' | 'Sedang' | 'Rendah'>('Semua');
   const [isLoading, setIsLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState<StudentData | null>(null);
-  const [isPremium, setIsPremium] = useState(false);
-  const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: string, isActive: boolean, endDate: string | null }>({ plan: 'free', isActive: false, endDate: null });
+  // Seed dari session cache agar render pertama langsung benar (tidak tunggu API)
+  const [subscriptionInfo, setSubscriptionInfo] = useState<{ plan: string, isActive: boolean, endDate: string | null }>(() => {
+    try {
+      const stored = localStorage.getItem('ks_session');
+      if (stored) {
+        const u = JSON.parse(stored);
+        const plan = u.school_subscription_plan || 'free';
+        const endDateStr = u.school_subscription_end_date || null;
+        const isActive = (plan === 'pro' || plan === 'premium') &&
+          (!endDateStr || new Date(endDateStr).getTime() > Date.now());
+        return { plan, isActive, endDate: endDateStr };
+      }
+    } catch(_) {}
+    return { plan: 'free', isActive: false, endDate: null };
+  });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'theme' | 'subscription'>('dashboard');
   const [themeForm, setThemeForm] = useState({ logo: '', color: '' });
   const [isSavingTheme, setIsSavingTheme] = useState(false);
@@ -42,11 +55,25 @@ export const DashboardBK: React.FC = () => {
   const [checkoutPlan, setCheckoutPlan] = useState<'pro' | 'premium' | null>(null);
   const [checkoutMethod, setCheckoutMethod] = useState<'bank' | 'ewallet'>('bank');
 
+  // Derived: isPremium dihitung langsung dari subscriptionInfo (bukan state terpisah)
+  const isPremium = (subscriptionInfo.plan === 'pro' || subscriptionInfo.plan === 'premium') &&
+    (!subscriptionInfo.endDate || new Date(subscriptionInfo.endDate).getTime() > Date.now());
+
   useEffect(() => { 
-    loadData(); 
+    loadData();
+    // Refresh live dari GAS untuk memastikan data terbaru (admin bisa update kapan saja)
     api.getSchoolSubscriptionInfo().then(info => {
-        setIsPremium(info.isActive);
         setSubscriptionInfo(info);
+        // Update session cache dengan data subscription terbaru
+        try {
+          const stored = localStorage.getItem('ks_session');
+          if (stored) {
+            const u = JSON.parse(stored);
+            u.school_subscription_plan = info.plan;
+            u.school_subscription_end_date = info.endDate || null;
+            localStorage.setItem('ks_session', JSON.stringify(u));
+          }
+        } catch(_) {}
         if (info.isActive) {
             api.getCurrentSchool().then(s => {
                 if(s) setThemeForm({ logo: s.school_logo || '', color: s.school_color_hex || '' });
@@ -97,7 +124,8 @@ export const DashboardBK: React.FC = () => {
 
   const sidebarItems: any[] = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Overview', onClick: () => setActiveTab('dashboard') },
-    ...(isPremium ? [{ id: 'theme', icon: Palette, label: 'Kustomisasi Tema', onClick: () => setActiveTab('theme') }] : []),
+    // Tab Tema Kustom hanya muncul jika plan premium (bukan pro)
+    ...(subscriptionInfo.plan === 'premium' && isPremium ? [{ id: 'theme', icon: Palette, label: 'Kustomisasi Tema', onClick: () => setActiveTab('theme') }] : []),
     { id: 'subscription', icon: CreditCard, label: 'Langganan', onClick: () => setActiveTab('subscription') }
   ];
 
@@ -115,23 +143,48 @@ export const DashboardBK: React.FC = () => {
   };
 
   const handlePurchaseSubmit = async () => {
-      if (!user?.school_id || !checkoutPlan) return;
+      if (!checkoutPlan) return;
       setIsPurchasing(true);
+      const toastId = toast.loading(`Memproses pembayaran Paket ${checkoutPlan.toUpperCase()}...`);
       try {
-          const expires = new Date();
-          expires.setDate(expires.getDate() + 30); // 30 hari dari sekarang
-          await api.updateSchoolSubscription(user.school_id, checkoutPlan, expires.toISOString());
-          toast.success(`Selamat! Sekolah Anda kini menggunakan Paket ${checkoutPlan.toUpperCase()}`);
-          
+          // Kirim school_id jika ada, jika tidak upgradeSchoolPlan akan resolve via school_name
+          const schoolId = String(user?.school_id || '');
+          const result = await api.upgradeSchoolPlan(schoolId, checkoutPlan);
+
+          // --- Instant state update (tanpa tunggu API refresh) ---
+          const newEndDate = result.subscription_end_date || (() => {
+              const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString();
+          })();
+          const newInfo = { plan: checkoutPlan, isActive: true, endDate: newEndDate };
+          setSubscriptionInfo(newInfo);
+
+          // Perbarui session cache agar refresh halaman pun tetap benar
+          try {
+              const stored = localStorage.getItem('ks_session');
+              if (stored) {
+                  const u = JSON.parse(stored);
+                  u.school_subscription_plan = checkoutPlan;
+                  u.school_subscription_end_date = newEndDate;
+                  localStorage.setItem('ks_session', JSON.stringify(u));
+              }
+          } catch(_) {}
+
+          // Tutup modal & navigasi ke dashboard
           setCheckoutPlan(null);
-          
-          // Auto-refresh state tanpa reload
-          const info = await api.getSchoolSubscriptionInfo();
-          setIsPremium(info.isActive);
-          setSubscriptionInfo(info);
-          setActiveTab('dashboard'); 
-      } catch(e) {
-          toast.error("Terjadi kesalahan saat memproses pembelian.");
+          setActiveTab('dashboard');
+          toast.success(
+              `🎉 Pembayaran Sukses! Paket ${checkoutPlan.toUpperCase()} aktif hingga ${new Date(newEndDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`,
+              { id: toastId, duration: 5000 }
+          );
+
+          // Background refresh dari server untuk konfirmasi data (tidak blocking UI)
+          api.getSchoolSubscriptionInfo().then(freshInfo => {
+              setSubscriptionInfo(freshInfo);
+          }).catch(() => {/* silent fail, state sudah update locally */});
+
+      } catch(e: any) {
+          const msg = e?.message || 'Terjadi kesalahan saat memproses pembayaran. Coba lagi.';
+          toast.error(msg, { id: toastId });
       } finally {
           setIsPurchasing(false);
       }
@@ -286,6 +339,7 @@ export const DashboardBK: React.FC = () => {
             ) : (
                 <>
                 {/* STATISTICS DASHBOARD OR PAYWALL */}
+                {/* Banner hanya tampil jika plan 'free' ATAU langganan sudah expired */}
             {isPremium ? (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12 animate-in fade-in">
                   {/* Main Visual Stats */}

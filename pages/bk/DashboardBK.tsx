@@ -53,7 +53,23 @@ export const DashboardBK: React.FC = () => {
   const [isSavingTheme, setIsSavingTheme] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<'pro' | 'premium' | null>(null);
-  const [checkoutMethod, setCheckoutMethod] = useState<'bank' | 'ewallet'>('bank');
+
+  // --- QRIS State ---
+  interface QrisData {
+    order_id: string;
+    transaction_id: string;
+    qr_code_url: string | null;
+    qr_string: string | null;
+    gross_amount: number;
+    expiry_time: string;
+    plan: 'pro' | 'premium';
+    school_id: string;
+  }
+  const [qrisData, setQrisData] = useState<QrisData | null>(null);
+  const [isLoadingQris, setIsLoadingQris] = useState(false);
+  const [qrisError, setQrisError] = useState<string | null>(null);
+  const [isCheckingPayment, setIsCheckingPayment] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
 
   // Derived: isPremium dihitung langsung dari subscriptionInfo (bukan state terpisah)
   const isPremium = (subscriptionInfo.plan === 'pro' || subscriptionInfo.plan === 'premium') &&
@@ -142,52 +158,146 @@ export const DashboardBK: React.FC = () => {
      }
   };
 
-  const handlePurchaseSubmit = async () => {
-      if (!checkoutPlan) return;
-      setIsPurchasing(true);
-      const toastId = toast.loading(`Memproses pembayaran Paket ${checkoutPlan.toUpperCase()}...`);
-      try {
-          // Kirim school_id jika ada, jika tidak upgradeSchoolPlan akan resolve via school_name
-          const schoolId = String(user?.school_id || '');
-          const result = await api.upgradeSchoolPlan(schoolId, checkoutPlan);
-
-          // --- Instant state update (tanpa tunggu API refresh) ---
-          const newEndDate = result.subscription_end_date || (() => {
-              const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString();
-          })();
-          const newInfo = { plan: checkoutPlan, isActive: true, endDate: newEndDate };
-          setSubscriptionInfo(newInfo);
-
-          // Perbarui session cache agar refresh halaman pun tetap benar
-          try {
-              const stored = localStorage.getItem('ks_session');
-              if (stored) {
-                  const u = JSON.parse(stored);
-                  u.school_subscription_plan = checkoutPlan;
-                  u.school_subscription_end_date = newEndDate;
-                  localStorage.setItem('ks_session', JSON.stringify(u));
-              }
-          } catch(_) {}
-
-          // Tutup modal & navigasi ke dashboard
-          setCheckoutPlan(null);
-          setActiveTab('dashboard');
-          toast.success(
-              `🎉 Pembayaran Sukses! Paket ${checkoutPlan.toUpperCase()} aktif hingga ${new Date(newEndDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`,
-              { id: toastId, duration: 5000 }
-          );
-
-          // Background refresh dari server untuk konfirmasi data (tidak blocking UI)
-          api.getSchoolSubscriptionInfo().then(freshInfo => {
-              setSubscriptionInfo(freshInfo);
-          }).catch(() => {/* silent fail, state sudah update locally */});
-
-      } catch(e: any) {
-          const msg = e?.message || 'Terjadi kesalahan saat memproses pembayaran. Coba lagi.';
-          toast.error(msg, { id: toastId });
-      } finally {
-          setIsPurchasing(false);
+  /**
+   * Langkah 1: Buka modal & generate QRIS via backend
+   */
+  const handleInitiateQris = async () => {
+    if (!checkoutPlan) return;
+    setIsLoadingQris(true);
+    setQrisError(null);
+    setQrisData(null);
+    try {
+      const res = await fetch('/api/payments/qris', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plan: checkoutPlan,
+          school_id: user?.school_id || '',
+          school_name: user?.school_name || 'Sekolah',
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.detail || json.error || 'Gagal membuat QRIS.');
       }
+      setQrisData(json);
+    } catch (e: any) {
+      setQrisError(e.message || 'Terjadi kesalahan. Coba lagi.');
+    } finally {
+      setIsLoadingQris(false);
+    }
+  };
+
+  /**
+   * Langkah 2: User klik "Saya Sudah Bayar" → polling status ke backend
+   * Jika sudah settlement, update subscription di GAS & refresh UI
+   */
+  const handleCheckPaymentStatus = async () => {
+    if (!qrisData) return;
+    setIsCheckingPayment(true);
+    const toastId = toast.loading('Memverifikasi pembayaran...');
+    try {
+      const res = await fetch(`/api/payments/status/${qrisData.order_id}`);
+      const status = await res.json();
+
+      const isSuccess =
+        status.transaction_status === 'settlement' ||
+        (status.transaction_status === 'capture' && status.fraud_status === 'accept');
+
+      if (isSuccess) {
+        // Upgrade plan secara manual via GAS (backup untuk webhook)
+        const result = await api.upgradeSchoolPlan(
+          qrisData.school_id || String(user?.school_id || ''),
+          qrisData.plan
+        );
+        const newEndDate = result.subscription_end_date || (() => {
+          const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString();
+        })();
+        const newInfo = { plan: qrisData.plan, isActive: true, endDate: newEndDate };
+        setSubscriptionInfo(newInfo);
+        try {
+          const stored = localStorage.getItem('ks_session');
+          if (stored) {
+            const u = JSON.parse(stored);
+            u.school_subscription_plan = qrisData.plan;
+            u.school_subscription_end_date = newEndDate;
+            localStorage.setItem('ks_session', JSON.stringify(u));
+          }
+        } catch(_) {}
+        setQrisData(null);
+        setCheckoutPlan(null);
+        setActiveTab('dashboard');
+        toast.success(
+          `🎉 Pembayaran Sukses! Paket ${qrisData.plan.toUpperCase()} aktif hingga ${new Date(newEndDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`,
+          { id: toastId, duration: 6000 }
+        );
+      } else if (status.transaction_status === 'pending') {
+        toast('⏳ Pembayaran belum diterima. Scan QRIS dan selesaikan pembayaran dulu.', { id: toastId, duration: 4000 });
+      } else {
+        toast.error(`Transaksi berstatus: ${status.transaction_status}. Coba buat QRIS baru.`, { id: toastId });
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Gagal memeriksa status pembayaran.', { id: toastId });
+    } finally {
+      setIsCheckingPayment(false);
+    }
+  };
+
+  /**
+   * [SANDBOX ONLY] Simulasi pembayaran berhasil via backend endpoint
+   * Backend akan langsung call updateSchoolSubscription via GAS
+   * tanpa perlu Midtrans approve/webhook (karena QRIS tidak support approve API)
+   */
+  const handleSimulatePayment = async () => {
+    if (!qrisData) return;
+    setIsSimulating(true);
+    const toastId = toast.loading('⚡ Mensimulasikan pembayaran...');
+    try {
+      const simRes = await fetch('/api/payments/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: qrisData.order_id,
+          plan: qrisData.plan,
+          school_id: qrisData.school_id || String(user?.school_id || ''),
+        }),
+      });
+      const simJson = await simRes.json();
+      if (!simRes.ok || !simJson.success) {
+        throw new Error(simJson.detail || simJson.error || 'Simulasi gagal.');
+      }
+
+      // Backend sudah update GAS — update UI langsung tanpa perlu polling lagi
+      const endDateISO = simJson.subscription_end_date || (() => {
+        const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString();
+      })();
+      const newPlan = simJson.plan || qrisData.plan;
+      const newInfo = { plan: newPlan, isActive: true, endDate: endDateISO };
+      setSubscriptionInfo(newInfo);
+
+      // Update localStorage session
+      try {
+        const stored = localStorage.getItem('ks_session');
+        if (stored) {
+          const u = JSON.parse(stored);
+          u.school_subscription_plan = newPlan;
+          u.school_subscription_end_date = endDateISO;
+          localStorage.setItem('ks_session', JSON.stringify(u));
+        }
+      } catch(_) {}
+
+      setQrisData(null);
+      setCheckoutPlan(null);
+      setActiveTab('dashboard');
+      toast.success(
+        `🎉 Simulasi Berhasil! Paket ${newPlan.toUpperCase()} aktif hingga ${new Date(endDateISO).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`,
+        { id: toastId, duration: 6000 }
+      );
+    } catch (e: any) {
+      toast.error(e.message || 'Simulasi gagal. Pastikan server berjalan dan QRIS sudah di-generate.', { id: toastId });
+    } finally {
+      setIsSimulating(false);
+    }
   };
 
   return (
@@ -523,56 +633,163 @@ export const DashboardBK: React.FC = () => {
           )}
 
           {checkoutPlan && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-                <motion.div 
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-[2rem] shadow-2xl p-8 max-w-md w-full"
-                >
-                    <h3 className="text-2xl font-black text-slate-900 mb-6">Konfirmasi Pembayaran</h3>
-                    
-                    <div className="space-y-4 mb-8">
-                        <div className="flex justify-between items-center pb-4 border-b border-slate-100">
-                            <span className="text-slate-500 font-medium">Instansi</span>
-                            <span className="font-bold text-slate-900 truncate max-w-[200px] text-right">{user?.school_name}</span>
-                        </div>
-                        <div className="flex justify-between items-center pb-4 border-b border-slate-100">
-                            <span className="text-slate-500 font-medium">Paket Terpilih</span>
-                            <Badge variant={checkoutPlan === 'premium' ? 'warning' : 'primary'}>{checkoutPlan.toUpperCase()}</Badge>
-                        </div>
-                        <div className="flex justify-between items-center pb-4 border-b border-slate-100">
-                            <span className="text-slate-500 font-medium">Total Harga</span>
-                            <span className="text-2xl font-black text-indigo-600">
-                                {checkoutPlan === 'pro' ? 'Rp 500.000' : 'Rp 1.000.000'}
-                            </span>
-                        </div>
-                    </div>
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.93, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.93, y: 20 }}
+                className="bg-white rounded-[2rem] shadow-2xl max-w-md w-full overflow-hidden"
+              >
+                {/* Header */}
+                <div className="bg-gradient-to-r from-indigo-600 to-violet-600 p-6 text-white">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-xl font-black">Pembayaran QRIS</h3>
+                    <button
+                      onClick={() => { setCheckoutPlan(null); setQrisData(null); setQrisError(null); }}
+                      className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors text-white font-bold text-sm"
+                    >✕</button>
+                  </div>
+                  <p className="text-indigo-200 text-xs font-medium">
+                    {user?.school_name} · Paket <span className="font-black text-white">{checkoutPlan?.toUpperCase()}</span>
+                    {' · '}
+                    <span className="font-black text-amber-300">{checkoutPlan === 'pro' ? 'Rp 500.000' : 'Rp 1.000.000'}</span>
+                  </p>
+                </div>
 
-                    <div className="mb-8">
-                        <label className="block text-sm font-bold text-slate-700 mb-3">Metode Pembayaran</label>
-                        <select 
-                            value={checkoutMethod}
-                            onChange={(e) => setCheckoutMethod(e.target.value as any)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                        >
-                            <option value="bank">Transfer Bank (BCA/Mandiri/BNI)</option>
-                            <option value="ewallet">e-Wallet (GoPay/OVO/Dana)</option>
-                        </select>
+                <div className="p-8">
+                  {/* STATE: Belum ada QR */}
+                  {!qrisData && !isLoadingQris && !qrisError && (
+                    <div className="text-center">
+                      <div className="w-20 h-20 bg-indigo-50 rounded-[1.8rem] flex items-center justify-center mx-auto mb-5">
+                        <CreditCard size={36} className="text-indigo-500" />
+                      </div>
+                      <h4 className="font-black text-slate-800 text-lg mb-2">Bayar dengan QRIS</h4>
+                      <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                        Scan kode QR menggunakan aplikasi mobile banking atau e-wallet apapun (GoPay, OVO, DANA, dll).
+                      </p>
+                      <Button
+                        variant="primary"
+                        className="w-full py-4 text-base font-black"
+                        onClick={handleInitiateQris}
+                      >
+                        Buat Kode QR
+                      </Button>
+                      <button
+                        onClick={() => { setCheckoutPlan(null); }}
+                        className="mt-3 w-full text-slate-400 text-sm font-medium hover:text-slate-600 transition-colors"
+                      >Batal</button>
                     </div>
+                  )}
 
-                    <div className="flex gap-3">
-                        <Button variant="outline" className="flex-1" onClick={() => setCheckoutPlan(null)}>Batal</Button>
-                        <Button 
-                            variant="primary" 
-                            className="flex-1" 
-                            disabled={isPurchasing}
-                            onClick={handlePurchaseSubmit}
-                        >
-                            {isPurchasing ? 'Memproses...' : 'Bayar Sekarang'}
-                        </Button>
+                  {/* STATE: Loading generate QR */}
+                  {isLoadingQris && (
+                    <div className="text-center py-8">
+                      <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                      <p className="text-slate-600 font-bold">Membuat QRIS...</p>
+                      <p className="text-slate-400 text-xs mt-1">Menghubungi Midtrans, harap tunggu</p>
                     </div>
-                </motion.div>
+                  )}
+
+                  {/* STATE: Error */}
+                  {qrisError && !isLoadingQris && (
+                    <div className="text-center py-4">
+                      <div className="w-16 h-16 bg-red-50 rounded-[1.5rem] flex items-center justify-center mx-auto mb-4">
+                        <span className="text-3xl">⚠️</span>
+                      </div>
+                      <h4 className="font-black text-slate-800 mb-2">Gagal Membuat QRIS</h4>
+                      <p className="text-red-500 text-sm font-medium mb-6 bg-red-50 rounded-xl px-4 py-3">{qrisError}</p>
+                      <Button variant="primary" className="w-full" onClick={handleInitiateQris}>Coba Lagi</Button>
+                      <button onClick={() => { setCheckoutPlan(null); setQrisError(null); }} className="mt-3 w-full text-slate-400 text-sm font-medium hover:text-slate-600">Batal</button>
+                    </div>
+                  )}
+
+                  {/* STATE: QR Code Tampil */}
+                  {qrisData && !isLoadingQris && (
+                    <div className="text-center">
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-4">Scan QR Code di Bawah</p>
+                      
+                      {/* QR Code Image */}
+                      <div className="relative inline-block mb-4">
+                        <div className="p-3 bg-white border-2 border-slate-100 rounded-2xl shadow-inner inline-block">
+                          {qrisData.qr_code_url ? (
+                            <img
+                              src={qrisData.qr_code_url}
+                              alt="QRIS Code"
+                              className="w-52 h-52 object-contain"
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          ) : (
+                            /* Fallback: tampilkan pesan jika tidak ada QR URL */
+                            <div className="w-52 h-52 bg-slate-50 rounded-xl flex flex-col items-center justify-center p-4">
+                              <span className="text-4xl mb-2">📱</span>
+                              <p className="text-xs text-slate-500 font-medium text-center">QR Image tidak tersedia di Sandbox. Gunakan QR String di bawah.</p>
+                            </div>
+                          )}
+                        </div>
+                        {/* QRIS Logo Overlay */}
+                        <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-white border border-slate-100 rounded-full px-3 py-1 text-[10px] font-black text-slate-700 shadow-sm">
+                          QRIS
+                        </div>
+                      </div>
+
+                      {/* Order Info */}
+                      <div className="bg-slate-50 rounded-2xl p-4 mb-5 text-left space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-400 font-bold uppercase">Order ID</span>
+                          <span className="font-mono font-bold text-slate-700 text-[10px] truncate max-w-[180px]">{qrisData.order_id}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-400 font-bold uppercase">Total</span>
+                          <span className="font-black text-indigo-600">{qrisData.gross_amount.toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}</span>
+                        </div>
+                        {qrisData.expiry_time && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-slate-400 font-bold uppercase">Berlaku Hingga</span>
+                            <span className="font-bold text-amber-600">{new Date(qrisData.expiry_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* CTA Buttons */}
+                      <button
+                        onClick={handleCheckPaymentStatus}
+                        disabled={isCheckingPayment || isSimulating}
+                        className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 text-white font-black rounded-2xl transition-all active:scale-95 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 text-sm mb-3"
+                      >
+                        {isCheckingPayment ? (
+                          <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Memeriksa...</>
+                        ) : (
+                          <>✅ Saya Sudah Bayar</>
+                        )}
+                      </button>
+
+                      {/* Tombol Simulasi — Hanya untuk Development/Sandbox */}
+                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-3">
+                        <p className="text-amber-700 text-[10px] font-black uppercase tracking-widest mb-2">⚠️ Mode Sandbox / Testing</p>
+                        <button
+                          onClick={handleSimulatePayment}
+                          disabled={isSimulating || isCheckingPayment}
+                          className="w-full py-3 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white font-black rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                        >
+                          {isSimulating ? (
+                            <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Mensimulasikan...</>
+                          ) : (
+                            <>⚡ Simulasi Bayar (Dev Only)</>
+                          )}
+                        </button>
+                        <p className="text-amber-600 text-[10px] mt-2 leading-relaxed">
+                          Tombol ini men-trigger Midtrans untuk approve transaksi secara otomatis. Hanya berfungsi di Sandbox.
+                        </p>
+                      </div>
+
+                      <p className="text-slate-400 text-xs">
+                        Klik tombol hijau setelah selesai melakukan pembayaran.
+                        Sistem akan otomatis mengaktifkan langganan Anda.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
             </div>
           )}
         </AnimatePresence>

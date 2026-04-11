@@ -4,9 +4,10 @@ import { api } from '../../services/mockSupabase';
 import { useAuth } from '../../context/AuthContext';
 import { UserProfile, EmotionTestResult } from '../../types';
 import {
-  Users, Search, School, AlertTriangle, 
+  Users, Search, AlertTriangle, 
   BarChart3, ChevronRight, Activity, LayoutDashboard,
-  Palette, Image as ImageIcon, Save, CreditCard, ShieldCheck
+  Palette, Save, CreditCard, ShieldCheck,
+  Zap, Crown, Star, CheckCircle2, Clock, CalendarCheck
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -104,7 +105,7 @@ export const DashboardBK: React.FC = () => {
       const allUsers = await api.getUsers();
       const allResults = await api.getEmotionResults();
       const filteredData = allUsers
-        .filter(u => u.role === 'user' && u.school_id === user?.school_id)
+        .filter(u => u.role === 'user' && String(u.school_id) === String(user?.school_id))
         .map(u => {
           const userResults = allResults
             .filter((r: EmotionTestResult) => r.user_id === u.id)
@@ -357,98 +358,252 @@ export const DashboardBK: React.FC = () => {
                    </Card>
                  </div>
              ) : activeTab === 'subscription' ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12 animate-in fade-in">
+                <div className="animate-in fade-in space-y-10 mb-12">
+                  {/* Current Status Banner */}
+                  <div className={`rounded-2xl p-5 flex items-center gap-4 border ${
+                    isPremium && subscriptionInfo.plan === 'premium'
+                      ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200'
+                      : isPremium && subscriptionInfo.plan === 'pro'
+                      ? 'bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-200'
+                      : 'bg-slate-50 border-slate-200'
+                  }`}>
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                      isPremium && subscriptionInfo.plan === 'premium'
+                        ? 'bg-amber-100'
+                        : isPremium && subscriptionInfo.plan === 'pro'
+                        ? 'bg-indigo-100'
+                        : 'bg-slate-100'
+                    }`}>
+                      {isPremium && subscriptionInfo.plan === 'premium' ? (
+                        <Crown size={22} className="text-amber-600" />
+                      ) : isPremium && subscriptionInfo.plan === 'pro' ? (
+                        <Zap size={22} className="text-indigo-600" />
+                      ) : (
+                        <ShieldCheck size={22} className="text-slate-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-0.5">Status Langganan</p>
+                      <p className={`font-black text-lg ${
+                        isPremium ? 'text-slate-800' : 'text-slate-500'
+                      }`}>
+                        {isPremium && subscriptionInfo.plan === 'premium'
+                          ? '✨ Paket PREMIUM Aktif'
+                          : isPremium && subscriptionInfo.plan === 'pro'
+                          ? '⚡ Paket PRO Aktif'
+                          : '🔒 Paket FREE (Terbatas)'}
+                      </p>
+                      {isPremium && subscriptionInfo.endDate && (
+                        <p className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-1">
+                          <CalendarCheck size={12}/>
+                          Aktif hingga {new Date(subscriptionInfo.endDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </p>
+                      )}
+                    </div>
+                    {isPremium && (
+                      <div className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest ${
+                        subscriptionInfo.plan === 'premium' ? 'bg-amber-200 text-amber-800' : 'bg-indigo-200 text-indigo-800'
+                      }`}>
+                        Aktif
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Plan Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* FREE PLAN */}
-                    <Card padding="xl" className={`flex flex-col relative overflow-hidden ${!subscriptionInfo.isActive || subscriptionInfo.plan === 'free' ? 'ring-4 ring-slate-200' : ''}`}>
-                        {(!subscriptionInfo.isActive || subscriptionInfo.plan === 'free') && (
-                            <div className="absolute top-0 right-0 bg-slate-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-bl-xl">Paket Aktif</div>
-                        )}
-                        <div className="mb-6">
-                            <h3 className="text-2xl font-black text-slate-900">FREE</h3>
-                            <p className="text-slate-500 mt-2 text-sm">Fitur monitoring dasar</p>
-                        </div>
-                        <div className="mb-8">
-                            <span className="text-4xl font-black text-slate-900">Rp 0</span>
-                        </div>
-                        <ul className="space-y-4 mb-10 flex-1">
-                            {['Radar Psikologis Dasar', 'Tanpa Analitik Menyeluruh'].map((feat, i) => (
-                                <li key={i} className="flex items-center gap-3 text-slate-700 font-medium">
-                                    <ShieldCheck size={18} className="text-slate-400" /> {feat}
-                                </li>
-                            ))}
-                        </ul>
-                        <Button 
-                            disabled={true}
-                            className="w-full py-4 text-sm font-bold bg-slate-100 text-slate-500 hover:bg-slate-100 border-none"
-                            variant="outline"
-                        >
-                            {(!subscriptionInfo.isActive || subscriptionInfo.plan === 'free') ? 'Paket Anda Saat Ini' : 'Paket Dasar'}
-                        </Button>
-                    </Card>
+                    <div className={`relative rounded-3xl border-2 p-8 flex flex-col overflow-hidden transition-all ${
+                      !isPremium
+                        ? 'border-slate-300 bg-white shadow-md'
+                        : 'border-slate-100 bg-slate-50/50 opacity-80'
+                    }`}>
+                      {!isPremium && (
+                        <div className="absolute top-4 right-4 bg-slate-800 text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full">Paket Aktif</div>
+                      )}
+                      <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-5">
+                        <ShieldCheck size={22} className="text-slate-500" />
+                      </div>
+                      <h3 className="text-xl font-black text-slate-700 mb-1">FREE</h3>
+                      <p className="text-slate-400 text-sm mb-6">Fitur monitoring dasar</p>
+                      <div className="mb-7">
+                        <span className="text-4xl font-black text-slate-800">Rp 0</span>
+                        <span className="text-slate-400 text-sm"> / bulan</span>
+                      </div>
+                      <ul className="space-y-3 mb-8 flex-1">
+                        {['Radar Psikologis Dasar', 'Maks 30 Murid', 'Tanpa Analitik Lanjutan'].map((feat, i) => (
+                          <li key={i} className="flex items-center gap-3 text-sm text-slate-600 font-medium">
+                            <CheckCircle2 size={16} className="text-slate-300 flex-shrink-0" /> {feat}
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        disabled
+                        className="w-full py-3.5 rounded-2xl text-sm font-bold bg-slate-100 text-slate-400 cursor-not-allowed"
+                      >
+                        {!isPremium ? 'Paket Anda Saat Ini' : 'Paket Dasar'}
+                      </button>
+                    </div>
 
                     {/* PRO PLAN */}
-                    <Card padding="xl" className={`flex flex-col relative overflow-hidden ${subscriptionInfo.isActive && subscriptionInfo.plan === 'pro' ? 'ring-4 ring-indigo-500' : ''}`}>
-                        {subscriptionInfo.isActive && subscriptionInfo.plan === 'pro' && (
-                            <div className="absolute top-0 right-0 bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-bl-xl">Paket Aktif</div>
-                        )}
-                        <div className="mb-6">
-                            <h3 className="text-2xl font-black text-slate-900">PRO</h3>
-                            <p className="text-slate-500 mt-2 text-sm">Grafik mendalam & Ekspor Data</p>
+                    <div className={`relative rounded-3xl border-2 p-8 flex flex-col overflow-hidden transition-all ${
+                      isPremium && subscriptionInfo.plan === 'pro'
+                        ? 'border-indigo-400 bg-gradient-to-br from-indigo-50 to-blue-50 shadow-xl shadow-indigo-100'
+                        : 'border-indigo-200 bg-white shadow-lg hover:shadow-xl hover:border-indigo-300'
+                    }`}>
+                      {/* Popular Badge */}
+                      {!(isPremium && subscriptionInfo.plan === 'premium') && !(isPremium && subscriptionInfo.plan === 'pro') && (
+                        <div className="absolute top-4 right-4 bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full flex items-center gap-1">
+                          <Star size={9} fill="white"/> Populer
                         </div>
-                        <div className="mb-8">
-                            <span className="text-4xl font-black text-slate-900">500rb</span>
-                            <span className="text-slate-500 text-sm"> / bulan</span>
-                        </div>
-                        <ul className="space-y-4 mb-10 flex-1">
-                            {['Semua Grafik Analitik', 'Export Laporan', 'Limit AI 50 pesan/hari'].map((feat, i) => (
-                                <li key={i} className="flex items-center gap-3 text-slate-700 font-medium">
-                                    <ShieldCheck size={18} className="text-emerald-500" /> {feat}
-                                </li>
-                            ))}
-                        </ul>
-                        <Button 
-                            onClick={() => setCheckoutPlan('pro')} 
-                            disabled={isPurchasing || (subscriptionInfo.isActive && subscriptionInfo.plan === 'pro') || (subscriptionInfo.isActive && subscriptionInfo.plan === 'premium')}
-                            className="w-full py-4 text-sm font-bold"
-                            variant={(subscriptionInfo.isActive && (subscriptionInfo.plan === 'pro' || subscriptionInfo.plan === 'premium')) ? 'outline' : 'primary'}
-                        >
-                            {subscriptionInfo.isActive && subscriptionInfo.plan === 'pro' ? 'Paket Anda Saat Ini' : (subscriptionInfo.isActive && subscriptionInfo.plan === 'premium' ? 'Sudah Premium' : 'Pilih Paket')}
-                        </Button>
-                    </Card>
+                      )}
+                      {isPremium && subscriptionInfo.plan === 'pro' && (
+                        <div className="absolute top-4 right-4 bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full">Paket Aktif</div>
+                      )}
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-100 flex items-center justify-center mb-5">
+                        <Zap size={22} className="text-indigo-600" />
+                      </div>
+                      <h3 className="text-xl font-black text-indigo-700 mb-1">PRO</h3>
+                      <p className="text-slate-500 text-sm mb-6">Grafik mendalam &amp; Ekspor Data</p>
+                      <div className="mb-7">
+                        <span className="text-4xl font-black text-indigo-700">Rp 500rb</span>
+                        <span className="text-slate-400 text-sm"> / bulan</span>
+                      </div>
+                      <ul className="space-y-3 mb-8 flex-1">
+                        {['Semua Grafik Analitik', 'Export Laporan PDF', 'Limit AI 50 pesan/hari', 'Murid Tak Terbatas'].map((feat, i) => (
+                          <li key={i} className="flex items-center gap-3 text-sm text-slate-700 font-medium">
+                            <CheckCircle2 size={16} className="text-indigo-500 flex-shrink-0" /> {feat}
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        onClick={() => setCheckoutPlan('pro')}
+                        disabled={isPurchasing || (isPremium && (subscriptionInfo.plan === 'pro' || subscriptionInfo.plan === 'premium'))}
+                        className={`w-full py-3.5 rounded-2xl text-sm font-black transition-all active:scale-95 ${
+                          isPremium && (subscriptionInfo.plan === 'pro' || subscriptionInfo.plan === 'premium')
+                            ? 'bg-indigo-100 text-indigo-400 cursor-not-allowed'
+                            : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200'
+                        }`}
+                      >
+                        {isPremium && subscriptionInfo.plan === 'pro'
+                          ? 'Paket Anda Saat Ini'
+                          : isPremium && subscriptionInfo.plan === 'premium'
+                          ? 'Sudah Premium'
+                          : 'Mulai Paket PRO'}
+                      </button>
+                    </div>
 
                     {/* PREMIUM PLAN */}
-                    <Card padding="xl" className={`flex flex-col relative overflow-hidden border-indigo-200 ${subscriptionInfo.isActive && subscriptionInfo.plan === 'premium' ? 'ring-4 ring-orange-500' : ''}`}>
-                        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-50" />
-                        {subscriptionInfo.isActive && subscriptionInfo.plan === 'premium' && (
-                            <div className="absolute top-0 right-0 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-bl-xl z-10">Paket Aktif</div>
-                        )}
-                        <div className="mb-6 relative z-10">
-                            <h3 className="text-2xl font-black text-indigo-600">PREMIUM</h3>
-                            <p className="text-slate-500 mt-2 text-sm">White-label & Akses AI Penuh</p>
+                    <div className={`relative rounded-3xl border-2 p-8 flex flex-col overflow-hidden transition-all ${
+                      isPremium && subscriptionInfo.plan === 'premium'
+                        ? 'border-amber-400 shadow-xl shadow-amber-100'
+                        : 'border-transparent shadow-xl hover:shadow-2xl'
+                    }`}
+                    style={{
+                      background: isPremium && subscriptionInfo.plan === 'premium'
+                        ? 'linear-gradient(135deg, #fffbeb 0%, #fff7ed 100%)'
+                        : 'linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4c1d95 100%)'
+                    }}
+                    >
+                      {/* Decorative orbs */}
+                      <div className="absolute top-0 right-0 w-40 h-40 rounded-full blur-2xl opacity-20 pointer-events-none"
+                        style={{ background: isPremium && subscriptionInfo.plan === 'premium' ? '#f59e0b' : '#818cf8' }}
+                      />
+                      <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full blur-2xl opacity-10 pointer-events-none"
+                        style={{ background: isPremium && subscriptionInfo.plan === 'premium' ? '#fb923c' : '#c084fc' }}
+                      />
+
+                      {isPremium && subscriptionInfo.plan === 'premium' ? (
+                        <div className="absolute top-4 right-4 bg-amber-500 text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full">Paket Aktif</div>
+                      ) : (
+                        <div className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full flex items-center gap-1 border border-white/20">
+                          <Crown size={9}/> Best Value
                         </div>
-                        <div className="mb-8 relative z-10">
-                            <span className="text-4xl font-black text-indigo-600">1 Juta</span>
-                            <span className="text-slate-500 text-sm"> / bulan</span>
-                        </div>
-                        <ul className="space-y-4 mb-10 flex-1 relative z-10">
-                            {['Fitur Paket Pro', 'White-labeling (Logo Sekolah)', 'AI Unlimited'].map((feat, i) => (
-                                <li key={i} className="flex items-center gap-3 text-slate-700 font-medium">
-                                    <ShieldCheck size={18} className="text-indigo-500" /> {feat}
-                                </li>
-                            ))}
-                        </ul>
-                        <Button 
-                            onClick={() => setCheckoutPlan('premium')} 
-                            disabled={isPurchasing || (subscriptionInfo.isActive && subscriptionInfo.plan === 'premium')}
-                            className="w-full py-4 text-sm font-bold relative z-10 bg-indigo-600 hover:bg-indigo-700 text-white"
-                        >
-                            {subscriptionInfo.isActive && subscriptionInfo.plan === 'premium' ? 'Paket Anda Saat Ini' : 'Pilih Paket'}
-                        </Button>
-                    </Card>
+                      )}
+
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-5 relative z-10 ${
+                        isPremium && subscriptionInfo.plan === 'premium' ? 'bg-amber-100' : 'bg-white/15'
+                      }`}>
+                        <Crown size={22} className={isPremium && subscriptionInfo.plan === 'premium' ? 'text-amber-600' : 'text-yellow-300'} />
+                      </div>
+                      <h3 className={`text-xl font-black mb-1 relative z-10 ${
+                        isPremium && subscriptionInfo.plan === 'premium' ? 'text-amber-700' : 'text-white'
+                      }`}>PREMIUM</h3>
+                      <p className={`text-sm mb-6 relative z-10 ${
+                        isPremium && subscriptionInfo.plan === 'premium' ? 'text-amber-600' : 'text-indigo-200'
+                      }`}>White-label &amp; Akses AI Penuh</p>
+                      <div className="mb-7 relative z-10">
+                        <span className={`text-4xl font-black ${
+                          isPremium && subscriptionInfo.plan === 'premium' ? 'text-amber-700' : 'text-white'
+                        }`}>Rp 1 Juta</span>
+                        <span className={`text-sm ${
+                          isPremium && subscriptionInfo.plan === 'premium' ? 'text-amber-500' : 'text-indigo-300'
+                        }`}> / bulan</span>
+                      </div>
+                      <ul className="space-y-3 mb-8 flex-1 relative z-10">
+                        {['Semua Fitur Paket PRO', 'White-label (Logo Sekolah)', 'AI Chat Unlimited', 'Prioritas Support'].map((feat, i) => (
+                          <li key={i} className={`flex items-center gap-3 text-sm font-medium ${
+                            isPremium && subscriptionInfo.plan === 'premium' ? 'text-amber-800' : 'text-indigo-100'
+                          }`}>
+                            <CheckCircle2 size={16} className={`flex-shrink-0 ${
+                              isPremium && subscriptionInfo.plan === 'premium' ? 'text-amber-500' : 'text-yellow-300'
+                            }`} /> {feat}
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        onClick={() => setCheckoutPlan('premium')}
+                        disabled={isPurchasing || (isPremium && subscriptionInfo.plan === 'premium')}
+                        className={`w-full py-3.5 rounded-2xl text-sm font-black transition-all active:scale-95 relative z-10 ${
+                          isPremium && subscriptionInfo.plan === 'premium'
+                            ? 'bg-amber-100 text-amber-500 cursor-not-allowed'
+                            : 'bg-white text-indigo-900 hover:bg-indigo-50 shadow-lg'
+                        }`}
+                      >
+                        {isPremium && subscriptionInfo.plan === 'premium' ? 'Paket Anda Saat Ini' : 'Mulai Paket PREMIUM'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
             ) : (
                 <>
                 {/* STATISTICS DASHBOARD OR PAYWALL */}
+                {/* Status Langganan Badge di halaman utama dashboard */}
+                {isPremium && (
+                  <div className={`mb-8 rounded-2xl px-5 py-4 flex items-center gap-4 border animate-in fade-in ${
+                    subscriptionInfo.plan === 'premium'
+                      ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200'
+                      : 'bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-200'
+                  }`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                      subscriptionInfo.plan === 'premium' ? 'bg-amber-100' : 'bg-indigo-100'
+                    }`}>
+                      {subscriptionInfo.plan === 'premium'
+                        ? <Crown size={18} className="text-amber-600" />
+                        : <Zap size={18} className="text-indigo-600" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-black text-sm text-slate-800">
+                        {subscriptionInfo.plan === 'premium' ? '✨ Paket PREMIUM Aktif' : '⚡ Paket PRO Aktif'}
+                      </p>
+                      {subscriptionInfo.endDate && (
+                        <p className="text-xs text-slate-500 font-medium flex items-center gap-1 mt-0.5">
+                          <Clock size={11}/> Berlaku hingga {new Date(subscriptionInfo.endDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('subscription')}
+                      className={`text-xs font-black px-4 py-2 rounded-xl flex-shrink-0 transition-all active:scale-95 ${
+                        subscriptionInfo.plan === 'premium'
+                          ? 'bg-amber-200 text-amber-800 hover:bg-amber-300'
+                          : 'bg-indigo-200 text-indigo-800 hover:bg-indigo-300'
+                      }`}
+                    >
+                      Lihat Langganan
+                    </button>
+                  </div>
+                )}
+
                 {/* Banner hanya tampil jika plan 'free' ATAU langganan sudah expired */}
             {isPremium ? (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12 animate-in fade-in">
@@ -627,8 +782,8 @@ export const DashboardBK: React.FC = () => {
             <StudentDetailView 
               student={selectedStudent.profile} 
               result={selectedStudent.latestResult}
+              risk={selectedStudent.risk}
               onClose={() => setSelectedStudent(null)}
-              onDownload={() => toast.success("Menyiapkan dokumen PDF...")}
             />
           )}
 

@@ -88,10 +88,13 @@ app.post('/api/payments/qris', async (req, res) => {
 
     // Ambil QR Code URL dari response actions Midtrans
     const actions = chargeResponse.actions || [];
-    const qrCodeUrl =
-      actions.find(a => a.name === 'generate-qr-code')?.url ||
-      chargeResponse.qr_string ||
-      null;
+    let qrCodeUrl = actions.find(a => a.name === 'generate-qr-code')?.url || null;
+
+    // Jika tidak ada URL gambar QR dari Midtrans, tapi ada qr_string (raw data)
+    // Kita buat URL QR Code menggunakan layanan eksternal (qrserver.com)
+    if (!qrCodeUrl && chargeResponse.qr_string) {
+      qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(chargeResponse.qr_string)}`;
+    }
 
     return res.json({
       success: true,

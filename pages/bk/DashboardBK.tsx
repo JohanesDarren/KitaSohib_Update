@@ -105,7 +105,14 @@ export const DashboardBK: React.FC = () => {
       const allUsers = await api.getUsers();
       const allResults = await api.getEmotionResults();
       const filteredData = allUsers
-        .filter(u => u.role === 'user' && String(u.school_id) === String(user?.school_id))
+        .filter(u => {
+          const isStudent = u.role === 'user';
+          const matchSchoolId = u.school_id && user?.school_id && String(u.school_id) === String(user.school_id);
+          const matchSchoolName = u.school_name && user?.school_name && 
+            String(u.school_name).toLowerCase().trim() === String(user.school_name).toLowerCase().trim();
+          
+          return isStudent && (matchSchoolId || matchSchoolName);
+        })
         .map(u => {
           const userResults = allResults
             .filter((r: EmotionTestResult) => r.user_id === u.id)
@@ -177,10 +184,20 @@ export const DashboardBK: React.FC = () => {
           school_name: user?.school_name || 'Sekolah',
         }),
       });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.detail || json.error || 'Gagal membuat QRIS.');
+
+      if (!res.ok) {
+        let errorMsg = 'Gagal membuat QRIS.';
+        try {
+          const errData = await res.json();
+          errorMsg = errData.detail || errData.error || errorMsg;
+        } catch (_) {
+          if (res.status === 504 || res.status === 502) errorMsg = "Server pembayaran tidak dapat dihubungi. Silakan coba lagi nanti.";
+          else errorMsg = `Server error: ${res.status}`;
+        }
+        throw new Error(errorMsg);
       }
+
+      const json = await res.json();
       setQrisData(json);
     } catch (e: any) {
       setQrisError(e.message || 'Terjadi kesalahan. Coba lagi.');

@@ -124,30 +124,102 @@ async function resolveSchoolId(schools: School[]): Promise<string | null> {
   return null;
 }
 
-function filterBySchool<T extends { school_id?: string }>(items: T[]): T[] {
+function filterBySchool<T extends { school_id?: string, school_name?: string }>(items: T[]): T[] {
   const user = getCurrentUser();
   if (user?.role === 'admin') return items;
-  if (!user || !user.school_id) return items;
-  return items.filter(item => String(item.school_id) === String(user.school_id));
+  if (!user) return [];
+
+  const uId = user.school_id ? String(user.school_id).trim() : '';
+  const uName = user.school_name ? String(user.school_name).toLowerCase().trim() : '';
+
+  if (!uId && !uName) return items; // Admin or unassigned
+
+  return items.filter(item => {
+    const iId = item.school_id ? String(item.school_id).trim() : '';
+    const iName = item.school_name ? String(item.school_name).toLowerCase().trim() : '';
+    
+    const matchId = uId && iId && uId === iId;
+    const matchName = uName && iName && uName === iName;
+    
+    return matchId || matchName;
+  });
 }
 
 function filterUsersBySchool(items: UserProfile[]): UserProfile[] {
-  const user = getCurrentUser();
-  if (user?.role === 'admin') return items;
-  if (!user || !user.school_id) return items;
-  return items.filter(item => String(item.school_id) === String(user.school_id));
+  return filterBySchool(items);
 }
 
 export const api = {
   // --- AUTH ---
   login: async (email: string, password: string): Promise<UserProfile> => {
-    return await fetchGAS<UserProfile>('login', { email, password });
+    const user = await fetchGAS<UserProfile>('login', { email, password });
+    
+    // Sinkronisasi school_id jika masih kosong tapi school_name ada
+    if (user && !user.school_id && user.school_name) {
+      try {
+        const schools = await api.getSchools();
+        const matched = schools.find(s => 
+          String(s.school_name).toLowerCase().trim() === String(user.school_name).toLowerCase().trim()
+        );
+        if (matched) {
+          user.school_id = matched.id;
+          // Update di server secara background
+          api.updateProfile(user.id, { school_id: matched.id });
+        }
+      } catch(e) {}
+    }
+    
+    return user;
   },
   register: async (data: any) => {
-    return await fetchGAS('create_row', { sheet: 'users', data: { ...data, role: 'user', status: 'active', avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.username}`, created_at: new Date().toISOString() } });
+    // Coba cari school_id sebelum simpan
+    let school_id = data.school_id;
+    if (!school_id && data.school_name) {
+      try {
+        const schools = await api.getSchools();
+        const matched = schools.find(s => 
+          String(s.school_name).toLowerCase().trim() === String(data.school_name).toLowerCase().trim()
+        );
+        if (matched) school_id = matched.id;
+      } catch(e) {}
+    }
+
+    return await fetchGAS('create_row', { 
+      sheet: 'users', 
+      data: { 
+        ...data, 
+        school_id, 
+        role: 'user', 
+        status: 'active', 
+        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.username}`, 
+        created_at: new Date().toISOString() 
+      } 
+    });
   },
   registerBK: async (data: any) => {
-    return await fetchGAS('create_row', { sheet: 'users', data: { ...data, role: 'bk', status: 'pending_approval', avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.username}`, created_at: new Date().toISOString() } });
+    // Coba cari school_id sebelum simpan
+    let school_id = data.school_id;
+    if (!school_id && data.school_name) {
+      try {
+        const schools = await api.getSchools();
+        const matched = schools.find(s => 
+          String(s.school_name).toLowerCase().trim() === String(data.school_name).toLowerCase().trim()
+        );
+        if (matched) school_id = matched.id;
+      } catch(e) {}
+    }
+
+    return await fetchGAS('create_row', { 
+      sheet: 'users', 
+      data: { 
+        ...data, 
+        school_id, 
+        role: 'bk', 
+        status: 'pending_approval', 
+        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.username}`, 
+        created_at: new Date().toISOString() 
+      } 
+    });
   },
   createProfessionalUser: async (data: any) => {
     return await fetchGAS('create_row', { 

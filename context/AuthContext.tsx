@@ -31,11 +31,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           // Validasi: Pastikan ID dan Role ada untuk mencegah bug 'undefined role'
           if (parsedUser && parsedUser.id && parsedUser.role) {
+            // Sinkronisasi school_id jika masih kosong tapi school_name ada
+            if (!parsedUser.school_id && parsedUser.school_name) {
+                api.getSchools().then(schools => {
+                    const matched = schools.find(s => 
+                        String(s.school_name).toLowerCase().trim() === String(parsedUser.school_name).toLowerCase().trim()
+                    );
+                    if (matched) {
+                        parsedUser.school_id = matched.id;
+                        localStorage.setItem('ks_session', JSON.stringify(parsedUser));
+                        setUser({ ...parsedUser });
+                        // Update di server secara background
+                        api.updateProfile(parsedUser.id, { school_id: matched.id });
+                    }
+                });
+            }
+            
             setUser(parsedUser as UserProfile);
             
             // Terapkan Tema Kustom jika premium
             api.getCurrentSchool().then(s => {
-                if (s && s.subscription_plan === 'premium' && (s.school_logo || s.school_color_hex)) {
+                if (s && (s.subscription_plan === 'premium' || s.subscription_plan === 'pro') && (s.school_logo || s.school_color_hex)) {
                     setSchoolTheme({ logo: s.school_logo || '', color: s.school_color_hex || '' });
                     if (s.school_color_hex) applyCustomCSSColor(s.school_color_hex);
                 } else {

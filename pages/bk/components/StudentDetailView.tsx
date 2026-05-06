@@ -39,6 +39,7 @@ interface StudentDetailViewProps {
   result: EmotionTestResult | null;
   risk: 'Rendah' | 'Sedang' | 'Tinggi';
   onClose: () => void;
+  canExportPDF?: boolean; // PRO/Premium only
 }
 
 function parseAnalysis(aiAnalysis: string | undefined): DetailedAnalysis | null {
@@ -55,6 +56,7 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
   result,
   risk,
   onClose,
+  canExportPDF = false,
 }) => {
   const printRef = useRef<HTMLDivElement>(null);
   const analysis = useMemo(() => parseAnalysis(result?.ai_analysis), [result]);
@@ -93,27 +95,31 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
 
   const status = getRiskStyle(risk);
 
+  // Map subject names to display labels for the radar chart
+  const DIMENSION_LABELS: Record<string, string> = {
+    'Kesadaran': 'Kesadaran Diri',
+    'Regulasi': 'Regulasi Diri',
+    'Empati': 'Kesadaran Sosial',
+    'Sosial': 'Skill Relasi',
+  };
+
+  // Calculate percentage score from dimension (value is 0-full scale)
+  const getDimPct = (dim: DimensionScore) => {
+    const full = dim.full || 10;
+    return Math.min(100, Math.max(0, Math.round((dim.value / full) * 100)));
+  };
+
   const radarData = useMemo(() => {
-    const radarLabels = ['Kontrol Emosi', 'Kualitas Koping', 'Dukungan Sosial', 'Resiliensi'];
-    const radarDataValues = radarLabels.map(label => {
-      if (!result?.dimension_scores) return 0;
-      const match = result.dimension_scores.find(
-        (d: DimensionScore) =>
-          d.subject === label ||
-          (label === 'Kontrol Emosi' && d.subject === 'Tekanan') ||
-          (label === 'Dukungan Sosial' && d.subject === 'Pemicu') ||
-          (label === 'Resiliensi' && d.subject === 'Hobi') ||
-          (label === 'Kualitas Koping' && d.subject === 'Koping')
-      );
-      return match ? (match.full === 100 ? match.value / 10 : match.value) : 0;
-    });
+    const dims = result?.dimension_scores || [];
+    const labels = dims.map((d: DimensionScore) => DIMENSION_LABELS[d.subject] || d.subject);
+    const values = dims.map((d: DimensionScore) => d.value); // 0-10 scale for radar
 
     return {
-      labels: radarLabels,
+      labels: labels.length ? labels : ['Kesadaran Diri', 'Regulasi Diri', 'Kesadaran Sosial', 'Skill Relasi'],
       datasets: [
         {
           label: 'Profil Psikologis',
-          data: radarDataValues,
+          data: values.length ? values : [0, 0, 0, 0],
           backgroundColor: 'rgba(37, 99, 235, 0.15)',
           borderColor: '#2563eb',
           borderWidth: 2,
@@ -138,11 +144,7 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
           suggestedMax: 10,
           ticks: { display: false },
           pointLabels: {
-            font: {
-              size: 11,
-              weight: 'bold' as const,
-              family: "'Plus Jakarta Sans', sans-serif",
-            },
+            font: { size: 11, weight: 'bold' as const, family: "'Plus Jakarta Sans', sans-serif" },
             color: '#64748b',
           },
         },
@@ -154,6 +156,9 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
           padding: 12,
           bodyFont: { size: 12, weight: 'bold' as const },
           displayColors: false,
+          callbacks: {
+            label: (ctx: any) => ` ${ctx.raw?.toFixed(1)} / 10`,
+          },
         },
       },
     }),
@@ -200,7 +205,16 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
       pdf.text('Laporan Psikologis Siswa', 14, 13);
       pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('KitaSohib – Sistem Pemantauan Kesehatan Mental Sekolah', 14, 21);
+      try {
+        const logoHeader = new Image();
+        logoHeader.src = '/Logo.png';
+        await new Promise((res, rej) => { logoHeader.onload = res; logoHeader.onerror = rej; });
+        // Draw the logo at x:14, y:15, width:6, height:6
+        pdf.addImage(logoHeader, 'PNG', 14, 15, 6, 6);
+        pdf.text('Sistem Pemantauan Kesehatan Mental Sekolah', 22, 20);
+      } catch (e) {
+        pdf.text('KitaSohib – Sistem Pemantauan Kesehatan Mental Sekolah', 14, 21);
+      }
       const printDate = new Date().toLocaleDateString('id-ID', {
         day: 'numeric', month: 'long', year: 'numeric',
       });
@@ -268,26 +282,34 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
           pdf.setFontSize(10);
           pdf.setFont('helvetica', 'bold');
           pdf.setTextColor(30, 41, 59);
-          pdf.text('Dimensi Psikologis', 14, y);
-          y += 6;
+          pdf.text('Dimensi Psikologis (Kecerdasan Emosional)', 14, y);
+          y += 7;
+
+          const dimLabelMap: Record<string, string> = {
+            'Kesadaran': 'Kesadaran Diri',
+            'Regulasi': 'Regulasi Diri',
+            'Empati': 'Kesadaran Sosial',
+            'Sosial': 'Skill Relasi',
+          };
 
           result.dimension_scores.forEach((dim: DimensionScore) => {
-            const val = dim.full === 100 ? dim.value : dim.value * 10;
-            const pct = Math.min(100, Math.max(0, val));
-            const barW = pageW - 20 - 50;
+            const full = dim.full || 10;
+            const pct = Math.min(100, Math.max(0, Math.round((dim.value / full) * 100)));
+            const label = dimLabelMap[dim.subject] || dim.subject;
+            // Background bar
             pdf.setFillColor(241, 245, 249);
-            pdf.roundedRect(10, y, pageW - 20, 9, 2, 2, 'F');
-            // bar fill
-            const fillColor = pct >= 70 ? [239, 68, 68] : pct >= 40 ? [245, 158, 11] : [16, 185, 129];
+            pdf.roundedRect(10, y, pageW - 20, 10, 2, 2, 'F');
+            // Color fill - green=good, amber=moderate, red=low
+            const fillColor = pct >= 70 ? [16, 185, 129] : pct >= 40 ? [245, 158, 11] : [239, 68, 68];
             pdf.setFillColor(fillColor[0], fillColor[1], fillColor[2]);
-            pdf.roundedRect(10, y, (pct / 100) * (pageW - 20), 9, 2, 2, 'F');
+            pdf.roundedRect(10, y, (pct / 100) * (pageW - 20), 10, 2, 2, 'F');
             pdf.setFontSize(7);
             pdf.setFont('helvetica', 'bold');
             pdf.setTextColor(255, 255, 255);
-            pdf.text(dim.subject, 14, y + 6);
+            pdf.text(label.toUpperCase(), 14, y + 7);
             pdf.setTextColor(30, 41, 59);
-            pdf.text(`${Math.round(pct)}/100`, pageW - 12, y + 6, { align: 'right' });
-            y += 12;
+            pdf.text(`${pct}/100`, pageW - 12, y + 7, { align: 'right' });
+            y += 13;
           });
           y += 4;
         }
@@ -399,7 +421,14 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
       pdf.setFontSize(7);
       pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(148, 163, 184);
-      pdf.text('KitaSohib – Sistem Kesehatan Mental Sekolah', 14, footerY);
+      try {
+        const logoFooter = new Image();
+        logoFooter.src = '/Logo With Text.png';
+        await new Promise((res, rej) => { logoFooter.onload = res; logoFooter.onerror = rej; });
+        pdf.addImage(logoFooter, 'PNG', 14, footerY - 5, 20, 5);
+      } catch (e) {
+        pdf.text('KitaSohib – Sistem Kesehatan Mental Sekolah', 14, footerY);
+      }
       pdf.text(`Laporan bersifat rahasia – ${printDate}`, pageW - 14, footerY, { align: 'right' });
 
       pdf.save(`Laporan_${student.full_name.replace(/\s+/g, '_')}.pdf`);
@@ -448,12 +477,19 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleDownloadPDF}
-              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-2xl transition-all active:scale-95 shadow-md shadow-indigo-200"
-            >
-              <Download size={14} /> PDF
-            </button>
+            {canExportPDF ? (
+              <button
+                onClick={handleDownloadPDF}
+                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-2xl transition-all active:scale-95 shadow-md shadow-indigo-200"
+              >
+                <Download size={14} /> PDF
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-400 text-xs font-black rounded-2xl cursor-not-allowed" title="Upgrade ke PRO untuk export PDF">
+                <Download size={14} /> PDF
+                <span className="text-[9px] bg-amber-400 text-white px-1.5 py-0.5 rounded-full font-black">PRO</span>
+              </div>
+            )}
             <button
               onClick={onClose}
               className="p-3 bg-slate-50 rounded-2xl text-slate-400 hover:bg-slate-100 transition-all"
@@ -518,14 +554,14 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
                   </div>
                   <div className="space-y-3">
                     {result.dimension_scores.map((dim: DimensionScore, i: number) => {
-                      const rawVal = dim.full === 100 ? dim.value : dim.value * 10;
-                      const pct = Math.min(100, Math.max(0, rawVal));
-                      const barColor = pct >= 70 ? 'bg-red-400' : pct >= 40 ? 'bg-amber-400' : 'bg-emerald-400';
+                      const pct = getDimPct(dim);
+                      const barColor = pct >= 70 ? 'bg-emerald-400' : pct >= 40 ? 'bg-amber-400' : 'bg-red-400';
+                      const label = DIMENSION_LABELS[dim.subject] || dim.subject;
                       return (
                         <div key={i} className="space-y-1.5">
                           <div className="flex justify-between items-center">
-                            <span className="text-[11px] font-black text-slate-600 uppercase tracking-wider">{dim.subject}</span>
-                            <span className="text-[11px] font-black text-slate-800">{Math.round(pct)}<span className="text-slate-300 font-bold">/100</span></span>
+                            <span className="text-[11px] font-black text-slate-600 uppercase tracking-wider">{label}</span>
+                            <span className="text-[11px] font-black text-slate-800">{pct}<span className="text-slate-300 font-bold">/100</span></span>
                           </div>
                           <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
                             <div
@@ -659,12 +695,18 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
                 <p className="text-xs text-slate-400 mb-5 leading-relaxed">
                   Unduh laporan psikologis lengkap siswa ini dalam format PDF untuk keperluan dokumentasi dan bimbingan konseling.
                 </p>
-                <button
-                  onClick={handleDownloadPDF}
-                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
-                >
-                  <Download size={16} /> Unduh Laporan PDF
-                </button>
+                {canExportPDF ? (
+                  <button
+                    onClick={handleDownloadPDF}
+                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <Download size={16} /> Unduh Laporan PDF
+                  </button>
+                ) : (
+                  <div className="w-full py-3.5 bg-white/10 border border-white/20 text-white/40 font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 cursor-not-allowed">
+                    <Download size={16} /> Fitur PRO &amp; Premium
+                  </div>
+                )}
               </section>
             </div>
           </div>

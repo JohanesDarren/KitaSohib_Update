@@ -53,9 +53,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
              {schoolTheme?.logo ? (
                 <img src={schoolTheme.logo} className="w-10 h-10 rounded-xl object-contain shadow-lg bg-white p-1" alt="School Logo" />
              ) : (
-                <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/30 text-white font-black text-sm">
-                   KS
-                </div>
+                <img src="/Logo.png" className="w-10 h-10 object-contain drop-shadow-sm" alt="KitaSohib Logo" />
              )}
              <div>
                 <h1 className="text-lg font-black text-slate-900 tracking-tight">{user?.school_name || 'KitaSohib'}<span className="text-primary-500">.</span></h1>

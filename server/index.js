@@ -62,7 +62,7 @@ app.post('/api/payments/qris', async (req, res) => {
   }
 
   const grossAmount = plan === 'pro' ? 500000 : 1000000;
-  const orderId = `KITASOHIB-${plan.toUpperCase()}-${uuidv4()}`;
+  const orderId = `KS-${plan.toUpperCase()}-${uuidv4()}`;
 
   const parameter = {
     payment_type: 'qris',

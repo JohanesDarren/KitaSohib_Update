@@ -178,9 +178,7 @@ export const Login: React.FC = () => {
            {/* Content */}
            <div className="relative z-20 p-8 md:p-12 flex flex-col h-full md:justify-center">
               <div className="mb-6 md:mb-10">
-                 <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center mb-4">
-                    <Sparkles className="text-white" size={24} />
-                 </div>
+                 <img src="/Logo.png" alt="KitaSohib Logo" className="h-14 mb-4 object-contain drop-shadow-lg" />
                  <h1 className="text-3xl md:text-4xl font-black text-white leading-tight mb-2 drop-shadow-md">
                     {isLoginView ? 'Welcome Sohib!' : 'Hai Sohib!'}
                  </h1>

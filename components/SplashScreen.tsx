@@ -51,9 +51,7 @@ export const SplashScreen: React.FC = () => {
           transition={{ delay: 0.5, duration: 0.8 }}
           className="text-center"
         >
-          <h1 className="text-4xl font-extrabold tracking-tight mb-2 drop-shadow-md">
-            KitaSohib<span className="text-teal-200">.</span>
-          </h1>
+          <img src="/Logo.png" alt="KitaSohib Logo" className="h-16 mx-auto mb-2 drop-shadow-md object-contain" />
           <motion.div 
             className="h-1 w-16 bg-white/50 mx-auto rounded-full mb-4"
             initial={{ width: 0 }}

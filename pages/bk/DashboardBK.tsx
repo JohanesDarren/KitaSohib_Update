@@ -26,6 +26,17 @@ interface StudentData {
   risk: 'Rendah' | 'Sedang' | 'Tinggi';
 }
 
+interface QrisData {
+  order_id: string;
+  transaction_id: string;
+  qr_code_url: string | null;
+  qr_string: string | null;
+  gross_amount: number;
+  expiry_time: string;
+  plan: 'pro' | 'premium';
+  school_id: string;
+}
+
 export const DashboardBK: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -50,38 +61,39 @@ export const DashboardBK: React.FC = () => {
     return { plan: 'free', isActive: false, endDate: null };
   });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'theme' | 'subscription'>('dashboard');
-  const [themeForm, setThemeForm] = useState({ logo: '', color: '' });
+  const [themeForm, setThemeForm] = useState({ 
+    logo: '', 
+    color: '', 
+    tagline: '',
+    welcomeMessage: '',
+    fontFamily: 'Plus Jakarta Sans',
+    badgeColor: '#6366F1',
+  });
   const [isSavingTheme, setIsSavingTheme] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<'pro' | 'premium' | null>(null);
 
+  const FREE_STUDENT_LIMIT = 30;
+
+  // Derived: isPremium dihitung langsung dari subscriptionInfo (bukan state terpisah)
+  // Catatan: isPremium di sini berarti "paket berbayar" (PRO atau PREMIUM)
+  const isPremium = (subscriptionInfo.plan === 'pro' || subscriptionInfo.plan === 'premium') &&
+    (!subscriptionInfo.endDate || new Date(subscriptionInfo.endDate).getTime() > Date.now());
+
+  const canExportPDF = isPremium; // PRO+ can export PDF
+
   // --- QRIS State ---
-  interface QrisData {
-    order_id: string;
-    transaction_id: string;
-    qr_code_url: string | null;
-    qr_string: string | null;
-    gross_amount: number;
-    expiry_time: string;
-    plan: 'pro' | 'premium';
-    school_id: string;
-  }
   const [qrisData, setQrisData] = useState<QrisData | null>(null);
   const [isLoadingQris, setIsLoadingQris] = useState(false);
   const [qrisError, setQrisError] = useState<string | null>(null);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
 
-  // Derived: isPremium dihitung langsung dari subscriptionInfo (bukan state terpisah)
-  const isPremium = (subscriptionInfo.plan === 'pro' || subscriptionInfo.plan === 'premium') &&
-    (!subscriptionInfo.endDate || new Date(subscriptionInfo.endDate).getTime() > Date.now());
-
   useEffect(() => { 
     loadData();
     // Refresh live dari GAS untuk memastikan data terbaru (admin bisa update kapan saja)
     api.getSchoolSubscriptionInfo().then(info => {
         setSubscriptionInfo(info);
-        // Update session cache dengan data subscription terbaru
         try {
           const stored = localStorage.getItem('ks_session');
           if (stored) {
@@ -93,7 +105,11 @@ export const DashboardBK: React.FC = () => {
         } catch(_) {}
         if (info.isActive) {
             api.getCurrentSchool().then(s => {
-                if(s) setThemeForm({ logo: s.school_logo || '', color: s.school_color_hex || '' });
+                if(s) setThemeForm(prev => ({ 
+                  ...prev,
+                  logo: s.school_logo || '', 
+                  color: s.school_color_hex || '' 
+                }));
             });
         }
     });
@@ -148,7 +164,7 @@ export const DashboardBK: React.FC = () => {
 
   const sidebarItems: any[] = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Overview', onClick: () => setActiveTab('dashboard') },
-    // Tab Tema Kustom hanya muncul jika plan premium (bukan pro)
+    // Kustomisasi Tema hanya untuk Premium
     ...(subscriptionInfo.plan === 'premium' && isPremium ? [{ id: 'theme', icon: Palette, label: 'Kustomisasi Tema', onClick: () => setActiveTab('theme') }] : []),
     { id: 'subscription', icon: CreditCard, label: 'Langganan', onClick: () => setActiveTab('subscription') }
   ];
@@ -158,9 +174,19 @@ export const DashboardBK: React.FC = () => {
      setIsSavingTheme(true);
      try {
          await api.updateSchoolTheme(user.school_id, themeForm.logo, themeForm.color);
-         toast.success("Tema Kustom berhasil diperbarui! Muat ulang halaman untuk efek penuh.");
+         // Save extended fields to localStorage for immediate effect
+         const stored = localStorage.getItem('ks_session');
+         if (stored) {
+           const u = JSON.parse(stored);
+           u.school_tagline = themeForm.tagline;
+           u.school_welcome = themeForm.welcomeMessage;
+           u.school_font = themeForm.fontFamily;
+           u.school_badge_color = themeForm.badgeColor;
+           localStorage.setItem('ks_session', JSON.stringify(u));
+         }
+         toast.success('Tema Kustom berhasil diperbarui! Muat ulang halaman untuk efek penuh.');
      } catch (e) {
-         toast.error("Gagal memperbarui tema.");
+         toast.error('Gagal memperbarui tema.');
      } finally {
          setIsSavingTheme(false);
      }
@@ -349,30 +375,139 @@ export const DashboardBK: React.FC = () => {
             </header>
 
             {activeTab === 'theme' ? (
-                <div className="animate-in fade-in space-y-8 max-w-2xl">
+                <div className="animate-in fade-in space-y-8 max-w-3xl">
+                   <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-center gap-3 mb-2">
+                     <Crown size={20} className="text-amber-600 flex-shrink-0" />
+                     <div>
+                       <p className="text-xs font-black text-amber-800">✨ White-Label Branding — Paket PREMIUM</p>
+                       <p className="text-xs text-amber-600 font-medium">Kustomisasi tampilan aplikasi khusus untuk sekolah Anda.</p>
+                     </div>
+                   </div>
+
+                   {/* IDENTITAS SEKOLAH */}
                    <Card padding="lg">
-                      <h3 className="font-black text-xl text-slate-800 mb-6 flex items-center gap-2"><Palette size={24} className="text-indigo-500"/> Identitas Sekolah</h3>
-                      <div className="space-y-6">
-                         <div>
-                            <Input label="URL Logo Sekolah Baru" value={themeForm.logo} onChange={e => setThemeForm({...themeForm, logo: e.target.value})} placeholder="https://example.com/logo.png" />
-                            {themeForm.logo && (
-                                <div className="mt-4 p-4 border border-dashed rounded-xl bg-slate-50 flex justify-center">
-                                    <img src={themeForm.logo} className="h-16 object-contain" onError={(e) => (e.currentTarget.src = '')} />
-                                </div>
-                            )}
-                         </div>
-                         <div>
-                            <Input label="Warna Utama (HEX Code)" value={themeForm.color} onChange={e => setThemeForm({...themeForm, color: e.target.value})} placeholder="#2563EB" />
-                            <div className="mt-2 flex gap-3 items-center">
-                                <span className="text-xs text-slate-500 font-bold uppercase">Preview Warna:</span>
-                                <div className="w-8 h-8 rounded-full shadow-sm border border-slate-200" style={{ backgroundColor: themeForm.color || '#3B82F6' }}></div>
+                      <h3 className="font-black text-xl text-slate-800 mb-6 flex items-center gap-2"><Palette size={24} className="text-indigo-500"/> Identitas Visual Sekolah</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <Input label="URL Logo Sekolah" value={themeForm.logo} onChange={e => setThemeForm({...themeForm, logo: e.target.value})} placeholder="https://example.com/logo.png" />
+                          {themeForm.logo && (
+                            <div className="mt-4 p-4 border border-dashed rounded-xl bg-slate-50 flex justify-center">
+                              <img src={themeForm.logo} className="h-16 object-contain" onError={(e) => (e.currentTarget.src = '')} />
                             </div>
-                         </div>
-                         <Button onClick={handleSaveTheme} className="w-full mt-4 py-4" disabled={isSavingTheme}>
-                             {isSavingTheme ? 'Menyimpan...' : 'Simpan Tema'} <Save size={18} className="ml-2"/>
-                         </Button>
+                          )}
+                        </div>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-xs font-black text-slate-600 uppercase tracking-widest block mb-2">Warna Utama (HEX)</label>
+                            <div className="flex gap-3 items-center">
+                              <input
+                                type="color"
+                                value={themeForm.color || '#6366F1'}
+                                onChange={e => setThemeForm({...themeForm, color: e.target.value})}
+                                className="w-12 h-12 rounded-xl border border-slate-200 cursor-pointer shadow-sm p-1"
+                              />
+                              <Input
+                                label=""
+                                value={themeForm.color}
+                                onChange={e => setThemeForm({...themeForm, color: e.target.value})}
+                                placeholder="#6366F1"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-xs font-black text-slate-600 uppercase tracking-widest block mb-2">Warna Badge Sekolah</label>
+                            <div className="flex gap-3 items-center">
+                              <input
+                                type="color"
+                                value={themeForm.badgeColor || '#6366F1'}
+                                onChange={e => setThemeForm({...themeForm, badgeColor: e.target.value})}
+                                className="w-12 h-12 rounded-xl border border-slate-200 cursor-pointer shadow-sm p-1"
+                              />
+                              <span className="px-3 py-1.5 rounded-full text-white text-xs font-black" style={{ backgroundColor: themeForm.badgeColor || '#6366F1' }}>
+                                {user?.school_name || 'Sekolah'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                    </Card>
+
+                   {/* TEKS & KONTEN */}
+                   <Card padding="lg">
+                      <h3 className="font-black text-xl text-slate-800 mb-6 flex items-center gap-2"><Star size={24} className="text-amber-500"/> Teks &amp; Konten</h3>
+                      <div className="space-y-5">
+                        <Input
+                          label="Tagline / Motto Sekolah"
+                          value={themeForm.tagline}
+                          onChange={e => setThemeForm({...themeForm, tagline: e.target.value})}
+                          placeholder="Cerdas, Berkarakter, dan Berprestasi"
+                        />
+                        <div>
+                          <label className="text-xs font-black text-slate-600 uppercase tracking-widest block mb-2">Pesan Sambutan Dashboard</label>
+                          <textarea
+                            value={themeForm.welcomeMessage}
+                            onChange={e => setThemeForm({...themeForm, welcomeMessage: e.target.value})}
+                            placeholder="Selamat datang di sistem monitoring kesehatan mental siswa..."
+                            rows={3}
+                            className="w-full px-4 py-3 border border-slate-200 rounded-2xl text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                          />
+                        </div>
+                      </div>
+                   </Card>
+
+                   {/* TIPOGRAFI */}
+                   <Card padding="lg">
+                      <h3 className="font-black text-xl text-slate-800 mb-6 flex items-center gap-2"><Zap size={24} className="text-violet-500"/> Tipografi</h3>
+                      <div>
+                        <label className="text-xs font-black text-slate-600 uppercase tracking-widest block mb-3">Pilih Font Aplikasi</label>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                          {['Plus Jakarta Sans', 'Inter', 'Poppins', 'Nunito', 'DM Sans', 'Outfit'].map(font => (
+                            <button
+                              key={font}
+                              onClick={() => setThemeForm({...themeForm, fontFamily: font})}
+                              className={`p-4 rounded-2xl border-2 text-left transition-all ${
+                                themeForm.fontFamily === font
+                                  ? 'border-indigo-500 bg-indigo-50 shadow-md shadow-indigo-100'
+                                  : 'border-slate-100 bg-white hover:border-indigo-200'
+                              }`}
+                              style={{ fontFamily: font }}
+                            >
+                              <p className="text-sm font-black text-slate-800">{font}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">Aa Bb Cc</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                   </Card>
+
+                   {/* PREVIEW */}
+                   <Card padding="lg">
+                      <h3 className="font-black text-xl text-slate-800 mb-5 flex items-center gap-2"><Activity size={24} className="text-emerald-500"/> Preview Tema</h3>
+                      <div className="rounded-2xl overflow-hidden border border-slate-100 shadow-lg">
+                        <div className="p-5 text-white" style={{ backgroundColor: themeForm.color || '#6366F1' }}>
+                          <div className="flex items-center gap-3">
+                            {themeForm.logo ? (
+                              <img src={themeForm.logo} className="w-10 h-10 rounded-xl object-contain bg-white/20 p-1" />
+                            ) : (
+                              <img src="/Logo.png" className="w-10 h-10 object-contain drop-shadow-sm" alt="KitaSohib Logo" />
+                            )}
+                            <div>
+                              <p className="font-black text-sm" style={{ fontFamily: themeForm.fontFamily }}>{user?.school_name || 'Nama Sekolah'}</p>
+                              <p className="text-[10px] opacity-70" style={{ fontFamily: themeForm.fontFamily }}>{themeForm.tagline || 'Tagline Sekolah'}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white p-5">
+                          <p className="text-sm font-bold text-slate-600" style={{ fontFamily: themeForm.fontFamily }}>
+                            {themeForm.welcomeMessage || 'Pesan sambutan akan muncul di sini.'}
+                          </p>
+                        </div>
+                      </div>
+                   </Card>
+
+                   <Button onClick={handleSaveTheme} className="w-full py-4" disabled={isSavingTheme}>
+                       {isSavingTheme ? 'Menyimpan...' : 'Simpan Semua Perubahan'} <Save size={18} className="ml-2"/>
+                   </Button>
                  </div>
              ) : activeTab === 'subscription' ? (
                 <div className="animate-in fade-in space-y-10 mb-12">
@@ -734,21 +869,34 @@ export const DashboardBK: React.FC = () => {
 
             {/* DATA GRID */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {filtered.length > 0 ? (
-                filtered.map(s => (
-                  <Card 
-                    key={s.profile.id} 
-                    interactive 
-                    onClick={() => setSelectedStudent(s)}
-                    padding="lg"
-                    className="group"
-                  >
+              {!isPremium && students.length > FREE_STUDENT_LIMIT && (
+                <div className="col-span-full mb-2 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 flex items-center gap-3">
+                  <AlertTriangle size={16} className="text-amber-500 flex-shrink-0" />
+                  <p className="text-xs font-bold text-amber-700">
+                    Paket FREE hanya menampilkan {FREE_STUDENT_LIMIT} murid pertama.{' '}
+                    Upgrade ke <button onClick={() => setActiveTab('subscription')} className="underline font-black">PRO</button>{' '}
+                    untuk melihat semua {students.length} murid.
+                  </p>
+                </div>
+              )}
+              {(() => {
+                const displayList = isPremium ? filtered : filtered.slice(0, FREE_STUDENT_LIMIT);
+                if (displayList.length === 0) return (
+                  <div key="empty" className="col-span-full py-32 text-center bg-white rounded-[3rem] border border-dashed border-slate-300">
+                     <div className="w-20 h-20 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                        <Users size={32} className="text-slate-200" />
+                     </div>
+                     <h3 className="text-lg font-black text-slate-800">Tidak ada data ditemukan</h3>
+                     <p className="text-slate-400 font-medium mt-1 uppercase text-[10px] tracking-[0.2em]">Coba ubah kriteria filter atau kata kunci pencarian</p>
+                  </div>
+                );
+                return displayList.map(s => (
+                  <Card key={s.profile.id} interactive onClick={() => setSelectedStudent(s)} padding="lg" className="group">
                     {s.risk === 'Tinggi' && (
                       <div className="absolute top-6 right-6 text-red-500 animate-bounce">
                         <AlertTriangle size={24} fill="currentColor" className="opacity-10" />
                       </div>
                     )}
-
                     <div className="flex items-center gap-5 mb-8">
                       <div className="relative">
                         <img src={s.profile.avatar_url} className="w-16 h-16 rounded-[1.8rem] object-cover bg-slate-50 ring-4 ring-slate-50 shadow-sm" alt="Avatar" />
@@ -759,7 +907,6 @@ export const DashboardBK: React.FC = () => {
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">NIS: {s.profile.username}</p>
                       </div>
                     </div>
-
                     <div className="flex justify-between items-center pt-6 border-t border-slate-50">
                       <div>
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Skor Radar</p>
@@ -772,21 +919,12 @@ export const DashboardBK: React.FC = () => {
                         {s.risk} Risk
                       </Badge>
                     </div>
-                    
                     <div className="mt-6 flex items-center gap-2 text-indigo-600 font-black text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
                        Buka Detail Analisis <ChevronRight size={14} />
                     </div>
                   </Card>
-                ))
-              ) : (
-                <div className="col-span-full py-32 text-center bg-white rounded-[3rem] border border-dashed border-slate-300">
-                   <div className="w-20 h-20 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
-                      <Users size={32} className="text-slate-200" />
-                   </div>
-                   <h3 className="text-lg font-black text-slate-800">Tidak ada data ditemukan</h3>
-                   <p className="text-slate-400 font-medium mt-1 uppercase text-[10px] tracking-[0.2em]">Coba ubah kriteria filter atau kata kunci pencarian</p>
-                </div>
-              )}
+                ));
+              })()}
             </div>
             </>
             )}
@@ -800,6 +938,7 @@ export const DashboardBK: React.FC = () => {
               student={selectedStudent.profile} 
               result={selectedStudent.latestResult}
               risk={selectedStudent.risk}
+              canExportPDF={canExportPDF}
               onClose={() => setSelectedStudent(null)}
             />
           )}

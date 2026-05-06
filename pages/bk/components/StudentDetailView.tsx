@@ -40,6 +40,7 @@ interface StudentDetailViewProps {
   risk: 'Rendah' | 'Sedang' | 'Tinggi';
   onClose: () => void;
   canExportPDF?: boolean; // PRO/Premium only
+  schoolLogo?: string;
 }
 
 function parseAnalysis(aiAnalysis: string | undefined): DetailedAnalysis | null {
@@ -57,6 +58,7 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
   risk,
   onClose,
   canExportPDF = false,
+  schoolLogo,
 }) => {
   const printRef = useRef<HTMLDivElement>(null);
   const analysis = useMemo(() => parseAnalysis(result?.ai_analysis), [result]);
@@ -207,11 +209,18 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
       pdf.setFont('helvetica', 'normal');
       try {
         const logoHeader = new Image();
-        logoHeader.src = '/Logo.png';
+        logoHeader.src = schoolLogo || '/Logo.png';
         await new Promise((res, rej) => { logoHeader.onload = res; logoHeader.onerror = rej; });
-        // Draw the logo at x:14, y:15, width:6, height:6
-        pdf.addImage(logoHeader, 'PNG', 14, 15, 6, 6);
-        pdf.text('Sistem Pemantauan Kesehatan Mental Sekolah', 22, 20);
+        
+        // Calculate aspect ratio
+        const aspect = logoHeader.width / logoHeader.height;
+        const targetHeight = 6;
+        const targetWidth = targetHeight * aspect;
+        
+        // Ensure image format is handled correctly (jsPDF can auto-detect from Image object or explicit string)
+        const format = logoHeader.src.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+        pdf.addImage(logoHeader, format, 14, 15, targetWidth, targetHeight);
+        pdf.text('Sistem Pemantauan Kesehatan Mental Sekolah', 14 + targetWidth + 2, 20);
       } catch (e) {
         pdf.text('KitaSohib – Sistem Pemantauan Kesehatan Mental Sekolah', 14, 21);
       }

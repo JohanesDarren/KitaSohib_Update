@@ -292,8 +292,15 @@ export const api = {
           return { success: true, plan, subscription_end_date: endDateISO };
       }
   },
-  updateSchoolTheme: async (id: string, school_logo: string, school_color_hex: string) => {
-      return await fetchGAS('update_row', { sheet: 'schools', id, data: { school_logo, school_color_hex } });
+  updateSchoolTheme: async (id: string, data: {
+      school_logo?: string;
+      school_color_hex?: string;
+      school_tagline?: string;
+      school_welcome?: string;
+      school_font?: string;
+      school_badge_color?: string;
+  }) => {
+      return await fetchGAS('update_row', { sheet: 'schools', id, data });
   },
   getCurrentSchool: async (): Promise<School | undefined> => {
       const schools = await api.getSchools();

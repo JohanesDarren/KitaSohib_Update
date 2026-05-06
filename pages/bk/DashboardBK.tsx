@@ -108,7 +108,11 @@ export const DashboardBK: React.FC = () => {
                 if(s) setThemeForm(prev => ({ 
                   ...prev,
                   logo: s.school_logo || '', 
-                  color: s.school_color_hex || '' 
+                  color: s.school_color_hex || '',
+                  tagline: s.school_tagline || prev.tagline,
+                  welcomeMessage: s.school_welcome || prev.welcomeMessage,
+                  fontFamily: s.school_font || prev.fontFamily,
+                  badgeColor: s.school_badge_color || prev.badgeColor
                 }));
             });
         }
@@ -121,14 +125,7 @@ export const DashboardBK: React.FC = () => {
       const allUsers = await api.getUsers();
       const allResults = await api.getEmotionResults();
       const filteredData = allUsers
-        .filter(u => {
-          const isStudent = u.role === 'user';
-          const matchSchoolId = u.school_id && user?.school_id && String(u.school_id) === String(user.school_id);
-          const matchSchoolName = u.school_name && user?.school_name && 
-            String(u.school_name).toLowerCase().trim() === String(user.school_name).toLowerCase().trim();
-          
-          return isStudent && (matchSchoolId || matchSchoolName);
-        })
+        .filter(u => u.role === 'user')
         .map(u => {
           const userResults = allResults
             .filter((r: EmotionTestResult) => r.user_id === u.id)
@@ -173,7 +170,14 @@ export const DashboardBK: React.FC = () => {
      if (!user?.school_id) return;
      setIsSavingTheme(true);
      try {
-         await api.updateSchoolTheme(user.school_id, themeForm.logo, themeForm.color);
+         await api.updateSchoolTheme(user.school_id, {
+             school_logo: themeForm.logo,
+             school_color_hex: themeForm.color,
+             school_tagline: themeForm.tagline,
+             school_welcome: themeForm.welcomeMessage,
+             school_font: themeForm.fontFamily,
+             school_badge_color: themeForm.badgeColor
+         });
          // Save extended fields to localStorage for immediate effect
          const stored = localStorage.getItem('ks_session');
          if (stored) {
@@ -185,8 +189,9 @@ export const DashboardBK: React.FC = () => {
            localStorage.setItem('ks_session', JSON.stringify(u));
          }
          toast.success('Tema Kustom berhasil diperbarui! Muat ulang halaman untuk efek penuh.');
-     } catch (e) {
-         toast.error('Gagal memperbarui tema.');
+     } catch (e: any) {
+         console.error("Save Theme Error:", e);
+         toast.error(`Gagal memperbarui tema: ${e.message || 'Terjadi kesalahan jaringan atau server.'}`);
      } finally {
          setIsSavingTheme(false);
      }
@@ -390,6 +395,57 @@ export const DashboardBK: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                           <Input label="URL Logo Sekolah" value={themeForm.logo} onChange={e => setThemeForm({...themeForm, logo: e.target.value})} placeholder="https://example.com/logo.png" />
+                          <div className="mt-2">
+                            <label className="text-xs font-black text-slate-600 uppercase tracking-widest block mb-2">Atau Upload Logo (Maks 1MB)</label>
+                            <input type="file" accept="image/*" onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  if (file.size > 2 * 1024 * 1024) {
+                                    toast.error("Ukuran file maksimal 2MB");
+                                    return;
+                                  }
+                                  const reader = new FileReader();
+                                  reader.onload = (event) => {
+                                    const img = new Image();
+                                    img.onload = () => {
+                                      const canvas = document.createElement('canvas');
+                                      const MAX_WIDTH = 200;
+                                      const MAX_HEIGHT = 200;
+                                      let width = img.width;
+                                      let height = img.height;
+                                      
+                                      if (width > height) {
+                                        if (width > MAX_WIDTH) {
+                                          height *= MAX_WIDTH / width;
+                                          width = MAX_WIDTH;
+                                        }
+                                      } else {
+                                        if (height > MAX_HEIGHT) {
+                                          width *= MAX_HEIGHT / height;
+                                          height = MAX_HEIGHT;
+                                        }
+                                      }
+                                      
+                                      canvas.width = width;
+                                      canvas.height = height;
+                                      const ctx = canvas.getContext('2d');
+                                      if(ctx) {
+                                          ctx.fillStyle = "white"; // Pastikan bg putih untuk jpeg
+                                          ctx.fillRect(0, 0, width, height);
+                                          ctx.drawImage(img, 0, 0, width, height);
+                                      }
+                                      // Kompres ke JPEG kualitas 60% agar string base64 sangat kecil (< 30k karakter)
+                                      // Ini krusial agar bisa disimpan di satu cell Google Sheets
+                                      const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                                      setThemeForm({...themeForm, logo: dataUrl});
+                                      toast.success("Gambar berhasil dikompresi & siap disimpan!", { icon: "⚡" });
+                                    };
+                                    img.src = event.target?.result as string;
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                            }} className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                          </div>
                           {themeForm.logo && (
                             <div className="mt-4 p-4 border border-dashed rounded-xl bg-slate-50 flex justify-center">
                               <img src={themeForm.logo} className="h-16 object-contain" onError={(e) => (e.currentTarget.src = '')} />
@@ -939,6 +995,7 @@ export const DashboardBK: React.FC = () => {
               result={selectedStudent.latestResult}
               risk={selectedStudent.risk}
               canExportPDF={canExportPDF}
+              schoolLogo={themeForm.logo}
               onClose={() => setSelectedStudent(null)}
             />
           )}

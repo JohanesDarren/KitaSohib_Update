@@ -35,6 +35,10 @@ export interface School {
   subscription_expires_at?: string | null; // Kept for backward compatibility if needed
   school_logo?: string;
   school_color_hex?: string;
+  school_tagline?: string;
+  school_welcome?: string;
+  school_font?: string;
+  school_badge_color?: string;
   created_at: string;
 }
 
